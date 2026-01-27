@@ -1,7 +1,7 @@
 {
-  "name": "오늘결정 - 아이 행동 가이드",
-  "short_name": "오늘결정",
-  "description": "대기질에 따른 우리 아이 맞춤 행동 가이드",
+  "name": "에피로그 (EPI-LOG) - 아이 활동 가이드",
+  "short_name": "에피로그",
+  "description": "대기질에 따른 우리 아이 활동 가이드",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#FFFDF5",
