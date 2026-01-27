@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+:root {
+  --background: #FFFDF5; /* Soft pastel cream/yellowish */
+  --foreground: #171717;
+  --pastel-blue: #E0F7FA;
+  --pastel-pink: #F8BBD0;
+  --pastel-green: #C8E6C9;
+  --pastel-yellow: #FFF9C4;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-pastel-blue: var(--pastel-blue);
+  --color-pastel-pink: var(--pastel-pink);
+  --color-pastel-green: var(--pastel-green);
+  --color-pastel-yellow: var(--pastel-yellow);
+  
+  --font-sans: var(--font-chilpan), "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+  
+  --shadow-brutal: 4px 4px 0px 0px rgba(0,0,0,1);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Custom Utility for Brutalism Border */
+@layer utilities {
+  .brutal-border {
+    border: 2px solid #000;
+    box-shadow: var(--shadow-brutal);
+  }
+}

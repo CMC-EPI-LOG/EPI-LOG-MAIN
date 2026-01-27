@@ -1,0 +1,16 @@
+{
+  "name": "오늘결정 - 아이 행동 가이드",
+  "short_name": "오늘결정",
+  "description": "대기질에 따른 우리 아이 맞춤 행동 가이드",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFDF5",
+  "theme_color": "#FFFDF5",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
