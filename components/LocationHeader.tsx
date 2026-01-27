@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MapPin, Search } from 'lucide-react';
-import DaumPostcode from 'react-daum-postcode';
 import { motion, AnimatePresence } from 'framer-motion';
+import { createPortal } from 'react-dom';
+import dynamic from 'next/dynamic';
+
+const DaumPostcode = dynamic(() => import('react-daum-postcode'), { ssr: false });
 
 interface LocationHeaderProps {
   currentLocation: string; // e.g. "역삼동" or "강남구"
@@ -12,6 +15,13 @@ interface LocationHeaderProps {
 
 export default function LocationHeader({ currentLocation, onLocationSelect }: LocationHeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      setPortalRoot(document.body);
+    }
+  }, []);
 
   const handleComplete = (data: any) => {
     // data.bname -> '역삼동' (Legal Dong)
@@ -41,51 +51,55 @@ export default function LocationHeader({ currentLocation, onLocationSelect }: Lo
 
   return (
     <>
-      <div className="flex items-center gap-2 mb-2">
-        <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
+        <div 
+          className="flex items-center gap-1 cursor-pointer hover:opacity-70 transition-opacity" 
+          onClick={() => {
+            console.log('Location Clicked!');
+            setIsSearchOpen(true);
+          }}
+        >
           <MapPin size={20} className="text-black fill-black/10" />
           <span className="text-xl font-black underline decoration-4 decoration-pastel-yellow underline-offset-4">
             {currentLocation}
           </span>
         </div>
-        <button 
-          onClick={() => setIsSearchOpen(true)}
-          className="bg-white border-2 border-black rounded-full p-1.5 hover:bg-gray-100 shadow-[2px_2px_0px_0px_black] active:translate-y-0.5 active:shadow-none transition-all"
-          aria-label="위치 변경"
-        >
-          <Search size={14} />
-        </button>
       </div>
 
-      <AnimatePresence>
-        {isSearchOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-             <motion.div
-               initial={{ opacity: 0, scale: 0.9 }}
-               animate={{ opacity: 1, scale: 1 }}
-               exit={{ opacity: 0, scale: 0.9 }}
-               className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden border-2 border-black relative"
-             >
-               <div className="p-4 flex justify-between items-center bg-pastel-blue border-b-2 border-black">
-                 <h3 className="font-black text-lg">📍 우리 동네 찾기</h3>
-                 <button 
-                   onClick={() => setIsSearchOpen(false)}
-                   className="font-bold text-2xl leading-none hover:text-red-500"
+      {portalRoot &&
+        // Use Portal to break out of the header's stacking context
+        createPortal(
+          <AnimatePresence>
+            {isSearchOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                 <motion.div
+                   initial={{ opacity: 0, scale: 0.9 }}
+                   animate={{ opacity: 1, scale: 1 }}
+                   exit={{ opacity: 0, scale: 0.9 }}
+                   className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden border-2 border-black relative"
                  >
-                   &times;
-                 </button>
-               </div>
-               <div className="h-[400px] w-full">
-                 <DaumPostcode 
-                   onComplete={handleComplete} 
-                   style={{ height: '100%' }}
-                   autoClose={false}
-                 />
-               </div>
-             </motion.div>
-          </div>
+                   <div className="p-4 flex justify-between items-center bg-pastel-blue border-b-2 border-black">
+                     <h3 className="font-black text-lg">📍 우리 동네 찾기</h3>
+                     <button 
+                       onClick={() => setIsSearchOpen(false)}
+                       className="font-bold text-2xl leading-none hover:text-red-500"
+                     >
+                       &times;
+                     </button>
+                   </div>
+                   <div className="h-[400px] w-full">
+                     <DaumPostcode 
+                       onComplete={handleComplete} 
+                       style={{ height: '100%' }}
+                       autoClose={false}
+                     />
+                   </div>
+                 </motion.div>
+              </div>
+            )}
+          </AnimatePresence>,
+          portalRoot
         )}
-      </AnimatePresence>
     </>
   );
 }
