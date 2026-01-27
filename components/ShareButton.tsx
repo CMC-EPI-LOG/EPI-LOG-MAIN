@@ -30,6 +30,12 @@ export default function ShareButton({ nickname, region, action }: ShareButtonPro
 
     // Double check
     if (Kakao && Kakao.isInitialized()) {
+      // FIX: Force use of registered domain to avoid 4019 error on localhost/preview
+      const shareUrl = new URL(
+        window.location.pathname + window.location.search,
+        'https://epi-log-main.vercel.app'
+      ).href;
+
       Kakao.Share.sendDefault({
         objectType: 'feed',
         content: {
@@ -37,16 +43,16 @@ export default function ShareButton({ nickname, region, action }: ShareButtonPro
           description: `오늘 ${region || '우리 동네'} 미세먼지 확인하러 가기`,
           imageUrl: 'https://epi-log-main.vercel.app/og-image.png',
           link: {
-            mobileWebUrl: window.location.href,
-            webUrl: window.location.href,
+            mobileWebUrl: shareUrl,
+            webUrl: shareUrl,
           },
         },
         buttons: [
           {
             title: '결과 보러 가기 🚀',
             link: {
-              mobileWebUrl: window.location.href,
-              webUrl: window.location.href,
+              mobileWebUrl: shareUrl,
+              webUrl: shareUrl,
             },
           },
         ],
