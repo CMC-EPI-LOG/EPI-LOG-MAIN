@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import { Toaster } from "react-hot-toast";
 import KakaoScript from "@/components/KakaoScript";
+import Analytics from "@/components/Analytics";
 import localFont from "next/font/local";
 import "./globals.css";
 
@@ -25,6 +27,7 @@ const rawSiteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 const siteUrl = rawSiteUrl.replace(/\/$/, "");
+const gaId = process.env.NEXT_PUBLIC_GA4_ID || "G-WY9118F11R";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -70,6 +73,9 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
+  verification: {
+    google: "3bG1zQxlFNvpo41nV5G7Sox0n1HmuH_MnQl6wqGjWpo",
+  },
 };
 
 export const viewport: Viewport = {
@@ -93,6 +99,23 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className={`${chilpanFont.className} ${chilpanFont.variable} antialiased min-h-screen`}>
+        {gaId && (
+          <>
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+              strategy="afterInteractive"
+            />
+            <Script id="ga4-init" strategy="afterInteractive">
+              {`
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', '${gaId}', { send_page_view: false, anonymize_ip: true });
+              `}
+            </Script>
+            <Analytics gaId={gaId} />
+          </>
+        )}
         {children}
         <Toaster position="top-center" reverseOrder={false} />
         <KakaoScript />
