@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import Script from "next/script";
 import { Toaster } from "react-hot-toast";
 import KakaoScript from "@/components/KakaoScript";
@@ -113,7 +114,9 @@ export default function RootLayout({
                 gtag('config', '${gaId}', { send_page_view: false, anonymize_ip: true });
               `}
             </Script>
-            <Analytics gaId={gaId} />
+            <Suspense fallback={null}>
+              <Analytics gaId={gaId} />
+            </Suspense>
           </>
         )}
         {children}
