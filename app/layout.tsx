@@ -21,10 +21,52 @@ const chilpanFont = localFont({
   display: 'swap',
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+
 export const metadata: Metadata = {
-  title: "오늘결정 (Epilogue)",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "에피로그 (EPI-LOG)",
+    template: "%s | 에피로그 (EPI-LOG)",
+  },
   description: "대기질에 따른 우리 아이 활동 가이드",
+  applicationName: "에피로그 (EPI-LOG)",
+  keywords: [
+    "에피로그",
+    "EPI-LOG",
+    "대기질",
+    "미세먼지",
+    "초미세먼지",
+    "육아",
+    "아이 건강",
+    "활동 가이드",
+  ],
   manifest: "/manifest.json",
+  openGraph: {
+    type: "website",
+    locale: "ko_KR",
+    siteName: "에피로그 (EPI-LOG)",
+    title: "에피로그 (EPI-LOG)",
+    description: "대기질에 따른 우리 아이 활동 가이드",
+    images: [
+      {
+        url: "/thumbnail.png",
+        width: 1200,
+        height: 630,
+        alt: "에피로그 (EPI-LOG) 공유 이미지",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "에피로그 (EPI-LOG)",
+    description: "대기질에 따른 우리 아이 활동 가이드",
+    images: ["/thumbnail.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export const viewport: Viewport = {
