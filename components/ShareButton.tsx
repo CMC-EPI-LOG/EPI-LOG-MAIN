@@ -9,54 +9,29 @@ interface ShareButtonProps {
 }
 
 export default function ShareButton({ nickname, region, action }: ShareButtonProps) {
-  const handleShare = () => {
-    if (typeof window === 'undefined') return;
+    const handleShare = async () => {
+    const shareData = {
+      title: `${nickname || '우리 아이'}는 오늘 ${action || '조심해야'} 해요!`,
+      text: `오늘 ${region || '우리 동네'} 미세먼지 확인하러 가기`,
+      url: window.location.href,
+    };
 
-    const { Kakao } = window;
-
-    if (!Kakao || !Kakao.isInitialized()) {
-      // Try initializing if key exists
-      if (Kakao && process.env.NEXT_PUBLIC_KAKAO_JS_KEY) {
-         try {
-           Kakao.init(process.env.NEXT_PUBLIC_KAKAO_JS_KEY);
-         } catch (e) {
-           console.error("Kakao Init Failed:", e);
-         }
-      } else {
-        alert('카카오톡 공유 기능을 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
-        return;
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch (err) {
+        console.error('Share failed:', err);
       }
-    }
-
-    // Double check
-    if (Kakao && Kakao.isInitialized()) {
-      // FIX: Force use of registered domain to avoid 4019 error on localhost/preview
-      const shareUrl = new URL(
-        window.location.pathname + window.location.search,
-        'https://epi-log-main.vercel.app'
-      ).href;
-
-      Kakao.Share.sendDefault({
-        objectType: 'feed',
-        content: {
-          title: `${nickname || '우리 아이'}는 오늘 ${action || '조심해야'} 해요!`,
-          description: `오늘 ${region || '우리 동네'} 미세먼지 확인하러 가기`,
-          imageUrl: 'https://epi-log-main.vercel.app/og-image.png',
-          link: {
-            mobileWebUrl: shareUrl,
-            webUrl: shareUrl,
-          },
-        },
-        buttons: [
-          {
-            title: '결과 보러 가기 🚀',
-            link: {
-              mobileWebUrl: shareUrl,
-              webUrl: shareUrl,
-            },
-          },
-        ],
-      });
+    } else {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        // Using alert for simplicity as toast might not be imported/configured in this file
+        // We can check if 'react-hot-toast' is used in layout.tsx (it is), so we can import it.
+        alert('링크가 복사되었습니다!'); 
+      } catch (err) {
+        console.error('Clipboard failed:', err);
+        alert('링크 복사에 실패했습니다.');
+      }
     }
   };
 

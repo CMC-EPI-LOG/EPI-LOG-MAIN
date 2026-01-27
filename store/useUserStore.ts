@@ -8,9 +8,9 @@ export interface LocationData {
 }
 
 export interface UserProfile {
-  nickname: string;
-  ageGroup: string; // 'child_low' (초등 저학년) | 'child_high' (초등 고학년) | 'infant' (영유아)
-  condition: string; // 'normal' | 'sensitive' | 'asthma'
+  nickname?: string;
+  ageGroup: string; // 'child_low' | 'child_high' | 'infant' | 'adult'
+  condition: string; // 'none' | 'rhinitis' | 'asthma'
 }
 
 interface UserState {

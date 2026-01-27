@@ -5,18 +5,23 @@ const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.ver
 
 function mapProfileToAiSchema(profile: any) {
   // Internal to AI Schema Mapping
-  // Internal Age: 'infant', 'child_low', 'child_high', 'teen'
-  // AI Age: 'infant', 'child', 'adult', 'elderly'
-  let aiAge = 'child';
+  // Internal Age: 'infant', 'child_low', 'child_high', 'adult'
+  // AI Age: 'infant', 'elementary_low', 'elementary_high', 'teen'
+  let aiAge = 'elementary_low'; // Default fallback? Or maybe define explicit mapping
+  
   if (profile.ageGroup === 'infant') aiAge = 'infant';
-  else if (profile.ageGroup === 'teen') aiAge = 'child'; // Map teen to child for now
+  else if (profile.ageGroup === 'child_low') aiAge = 'elementary_low';
+  else if (profile.ageGroup === 'child_high') aiAge = 'elementary_high';
+  else if (profile.ageGroup === 'adult') aiAge = 'teen'; 
 
-  // Internal Condition: 'normal', 'sensitive', 'asthma'
+
+  // Internal Condition: 'none', 'rhinitis', 'asthma'
   // AI Condition: 'asthma', 'rhinitis', 'none', 'etc'
+  // Direct mapping mostly works now with new keys
   let aiCondition = 'none';
   if (profile.condition === 'asthma') aiCondition = 'asthma';
-  else if (profile.condition === 'sensitive') aiCondition = 'rhinitis'; // Closest mapping
-
+  else if (profile.condition === 'rhinitis') aiCondition = 'rhinitis';
+  
   return {
     ageGroup: aiAge,
     condition: aiCondition,
@@ -89,6 +94,7 @@ export async function POST(request: Request) {
     if (aiResponse.status === 'fulfilled') {
       if (aiResponse.value.ok) {
         aiData = await aiResponse.value.json();
+        console.log('[BFF] Raw AI Data:', JSON.stringify(aiData, null, 2));
         // Transform AI response to expected format if needed
         // AI returns: { decision: "X", reason: "...", actionItems: [] }
         if (aiData) {
@@ -103,11 +109,12 @@ export async function POST(request: Request) {
                  };
             } else {
                     aiData = {
-                        summary: aiData.reason,
-                        detail: aiData.actionItems ? aiData.actionItems.join('\n') : '',
+                        summary: aiData.decision,
+                        detail: aiData.reason,
+                        actionItems: aiData.actionItems || [],
                         activityRecommendation: aiData.decision, 
                         maskRecommendation: 'KF80 권장', // Default/Logic placeholder
-                        references: aiData.references || []
+                        references: aiData.references || [] // Now explicitly part of the API
                     };
             }
         }

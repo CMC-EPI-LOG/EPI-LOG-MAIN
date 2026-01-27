@@ -12,14 +12,14 @@ interface OnboardingModalProps {
 }
 
 export default function OnboardingModal({ isOpen, onClose, onSubmit }: OnboardingModalProps) {
-  const [nickname, setNickname] = useState('');
+  // const [nickname, setNickname] = useState(''); // Removed
   const [ageGroup, setAgeGroup] = useState('child_low');
-  const [condition, setCondition] = useState('normal');
+  const [condition, setCondition] = useState('none');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nickname.trim()) return;
-    onSubmit({ nickname, ageGroup, condition });
+    // if (!nickname.trim()) return;
+    onSubmit({ nickname: '', ageGroup, condition }); // Pass empty string or undefined
     onClose();
   };
 
@@ -43,26 +43,16 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit }: Onboardin
             <h2 className="text-2xl font-black mb-6 text-center">📝 아이 정보 입력</h2>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block font-bold mb-1">닉네임</label>
-                <input
-                  type="text"
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                  placeholder="예: 튼튼이"
-                  className="w-full p-3 border-2 border-black rounded-lg focus:outline-none focus:ring-2 focus:ring-black"
-                  required
-                />
-              </div>
+              {/* Nickname Input Removed */}
 
               <div>
                 <label className="block font-bold mb-3">나이</label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { value: 'infant', label: '영유아 (0-5세)' },
-                    { value: 'child_low', label: '초등 저학년 (6-9세)' },
-                    { value: 'child_high', label: '초등 고학년 (10-13세)' },
-                    { value: 'teen', label: '청소년 (14세 이상)' }
+                    { value: 'infant', label: '유아 (0-6세)' },
+                    { value: 'child_low', label: '초등 저학년 (1-3학년)' },
+                    { value: 'child_high', label: '초등 고학년 (4-6학년)' },
+                    { value: 'adult', label: '청소년/성인' }
                   ].map((option) => (
                     <button
                       key={option.value}
@@ -84,9 +74,9 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit }: Onboardin
                 <label className="block font-bold mb-3">건강 상태</label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { value: 'normal', label: '건강함 💪' },
-                    { value: 'sensitive', label: '예민 🤧' },
-                    { value: 'asthma', label: '천식 🏥' }
+                    { value: 'none', label: '해당 없음' },
+                    { value: 'rhinitis', label: '알레르기 비염' },
+                    { value: 'asthma', label: '천식/쌕쌕거림' }
                   ].map((option) => (
                     <button
                       key={option.value}
