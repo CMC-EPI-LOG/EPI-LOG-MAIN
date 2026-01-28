@@ -1,6 +1,31 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
+const memoryStorage = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: (name: string) => (name in store ? store[name] : null),
+    setItem: (name: string, value: string) => {
+      store[name] = value;
+    },
+    removeItem: (name: string) => {
+      delete store[name];
+    },
+  };
+})();
+
+const getSafeStorage = () => {
+  if (typeof window === 'undefined') return memoryStorage;
+  try {
+    const testKey = '__epilog_storage_test__';
+    window.localStorage.setItem(testKey, '1');
+    window.localStorage.removeItem(testKey);
+    return window.localStorage;
+  } catch {
+    return memoryStorage;
+  }
+};
+
 export interface LocationData {
   lat: number;
   lng: number;
@@ -38,7 +63,7 @@ export const useUserStore = create<UserState>()(
     }),
     {
       name: 'epilog-storage',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(getSafeStorage),
     }
   )
 );

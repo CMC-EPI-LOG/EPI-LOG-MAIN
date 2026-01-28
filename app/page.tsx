@@ -146,15 +146,13 @@ export default function Home() {
 
           {/* Right: Settings */}
           <div className="z-20 w-[60px] flex justify-end">
-            {isOnboarded && (
-              <button
-                onClick={() => setIsModalOpen(true)}
-                className="text-black p-2 rounded-full"
-                aria-label="설정 변경"
-              >
-                <Settings size={24} />
-              </button>
-            )}
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="text-black p-2 rounded-full"
+              aria-label={isOnboarded ? "설정 변경" : "맞춤 설정 시작"}
+            >
+              <Settings size={24} />
+            </button>
           </div>
         </header>
 
