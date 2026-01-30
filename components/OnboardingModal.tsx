@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserProfile } from '@/store/useUserStore';
 import { X } from 'lucide-react';
@@ -9,12 +9,21 @@ interface OnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (profile: UserProfile) => void;
+  currentProfile: UserProfile | null;
 }
 
-export default function OnboardingModal({ isOpen, onClose, onSubmit }: OnboardingModalProps) {
+export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProfile }: OnboardingModalProps) {
   // const [nickname, setNickname] = useState(''); // Removed
-  const [ageGroup, setAgeGroup] = useState('child_low');
-  const [condition, setCondition] = useState('none');
+  const [ageGroup, setAgeGroup] = useState(currentProfile?.ageGroup || 'child_low');
+  const [condition, setCondition] = useState(currentProfile?.condition || 'none');
+
+  // Sync state with profile when modal opens
+  useEffect(() => {
+    if (isOpen && currentProfile) {
+      setAgeGroup(currentProfile.ageGroup);
+      setCondition(currentProfile.condition);
+    }
+  }, [isOpen, currentProfile]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

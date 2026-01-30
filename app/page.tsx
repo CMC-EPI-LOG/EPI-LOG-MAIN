@@ -76,7 +76,14 @@ export default function Home() {
         "위치 정보를 불러올 수 없어 '서울 중구' 기준으로 보여드려요 🏢",
       );
       // Fallback
-      fetchData(location, profile);
+      const fallbackLocation = {
+        lat: 37.5635,
+        lng: 126.9975,
+        stationName: "중구",
+      };
+      setLocation(fallbackLocation);
+      setDisplayRegion("서울 중구");
+      fetchData(fallbackLocation, profile);
     }
   };
 
@@ -98,7 +105,14 @@ export default function Home() {
         toast.error(
           "위치 정보를 불러올 수 없어 '서울 중구' 기준으로 보여드려요 🏢",
         );
-        fetchData(location, profile);
+        const fallbackLocation = {
+          lat: 37.5635,
+          lng: 126.9975,
+          stationName: "중구",
+        };
+        setLocation(fallbackLocation);
+        setDisplayRegion("서울 중구");
+        fetchData(fallbackLocation, profile);
       },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,6 +204,7 @@ export default function Home() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleProfileSubmit}
+        currentProfile={profile}
       />
 
       {/* PWA Install Prompt - Only show if not on onboarding/loading potentially, but component handles its own logic */}
