@@ -1,29 +1,27 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
+import { trackPageview } from "@/lib/analytics/ga";
 
 interface AnalyticsProps {
   gaId: string;
-}
-
-declare global {
-  interface Window {
-    gtag?: (...args: any[]) => void;
-    dataLayer?: unknown[];
-  }
 }
 
 export default function Analytics({ gaId }: AnalyticsProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const query = searchParams?.toString();
+  const hasTrackedRef = useRef(false);
 
   useEffect(() => {
-    if (!gaId || typeof window === "undefined" || !window.gtag) return;
-
     const pagePath = query ? `${pathname}?${query}` : pathname;
-    window.gtag("config", gaId, { page_path: pagePath });
+    if (!hasTrackedRef.current) {
+      hasTrackedRef.current = true;
+      return;
+    }
+
+    trackPageview(gaId, pagePath);
   }, [gaId, pathname, query]);
 
   return null;

@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
-import Script from "next/script";
+import { GoogleAnalytics } from "@next/third-parties/google";
 import { Toaster } from "react-hot-toast";
 import KakaoScript from "@/components/KakaoScript";
 import Analytics from "@/components/Analytics";
@@ -21,14 +21,16 @@ const chilpanFont = localFont({
     },
   ],
   variable: "--font-chilpan",
-  display: 'swap',
+  display: "swap",
 });
 
 const rawSiteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  (process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "http://localhost:3000");
 const siteUrl = rawSiteUrl.replace(/\/$/, "");
-const gaId = process.env.NEXT_PUBLIC_GA4_ID || "G-WY9118F11R";
+const gaId = process.env.NEXT_PUBLIC_GA_ID || process.env.NEXT_PUBLIC_GA4_ID;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -99,21 +101,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body className={`${chilpanFont.className} ${chilpanFont.variable} antialiased min-h-screen`}>
+      <body
+        className={`${chilpanFont.className} ${chilpanFont.variable} antialiased min-h-screen`}
+      >
         {gaId && (
           <>
-            <Script
-              src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
-              strategy="afterInteractive"
-            />
-            <Script id="ga4-init" strategy="afterInteractive">
-              {`
-                window.dataLayer = window.dataLayer || [];
-                function gtag(){dataLayer.push(arguments);}
-                gtag('js', new Date());
-                gtag('config', '${gaId}', { send_page_view: false, anonymize_ip: true });
-              `}
-            </Script>
+            <GoogleAnalytics gaId={gaId} />
             <Suspense fallback={null}>
               <Analytics gaId={gaId} />
             </Suspense>
