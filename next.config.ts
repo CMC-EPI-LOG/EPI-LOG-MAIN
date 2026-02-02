@@ -1,8 +1,10 @@
 import type { NextConfig } from "next";
 import withPWA from "next-pwa";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const config: NextConfig = {
   // Add other config options here if needed
+  // Note: instrumentation.ts is automatically enabled in Next.js 13+
 };
 
 const nextConfig = withPWA({
@@ -12,4 +14,8 @@ const nextConfig = withPWA({
   skipWaiting: true,
 })(config);
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  org: "epi-j9c",
+  project: "javascript-nextjs",
+  tunnelRoute: "/monitoring",
+});
