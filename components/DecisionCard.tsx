@@ -110,13 +110,24 @@ export default function DecisionCard({
 
   return (
     <motion.div
-      initial={{ scale: 0.8, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: "spring", stiffness: 200, damping: 15 }}
+      initial={{ scale: 0.5, opacity: 0, y: 50, rotate: -5 }}
+      animate={{ scale: 1, opacity: 1, y: 0, rotate: 0 }}
+      transition={{ 
+        type: "spring", 
+        stiffness: 260, 
+        damping: 20,
+        duration: 0.6 
+      }}
+      whileHover={{ scale: 1.02, transition: { duration: 0.2 } }}
       className={`w-full max-w-md ${bgColor} p-6 rounded-2xl brutal-border relative flex flex-col gap-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-center transition-colors duration-500`}
     >
       {/* Age Group & Condition Badge */}
-      <div className="absolute -top-4 -left-4 bg-white px-4 py-2 rounded-full border-2 border-black text-sm font-bold shadow-[2px_2px_0px_0px_black]">
+      <motion.div 
+        initial={{ x: -100, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+        className="absolute -top-4 -left-4 bg-white px-4 py-2 rounded-full border-2 border-black text-sm font-bold shadow-[2px_2px_0px_0px_black]"
+      >
         {profile?.ageGroup === "infant" ? "👶 영아(0~2세)" : 
          profile?.ageGroup === "toddler" ? "🧒 유아(3~6세)" :
          profile?.ageGroup === "elementary_low" ? "🎒 초등 저학년" :
@@ -124,9 +135,15 @@ export default function DecisionCard({
         {profile?.condition === "asthma" ? " · 천식" : 
          profile?.condition === "rhinitis" ? " · 비염" : 
          profile?.condition === "atopy" ? " · 아토피" : ""}
-      </div>
+      </motion.div>
 
-      <div className="absolute -top-4 -right-4 bg-yellow-300 px-5 py-2 rounded-full border-2 border-black text-base font-bold rotate-12 shadow-[2px_2px_0px_0px_black]">
+      <motion.div 
+        initial={{ x: 100, opacity: 0, rotate: 0 }}
+        animate={{ x: 0, opacity: 1, rotate: 12 }}
+        transition={{ delay: 0.3, type: "spring", stiffness: 200 }}
+        whileHover={{ rotate: -5, scale: 1.1 }}
+        className="absolute -top-4 -right-4 bg-yellow-300 px-5 py-2 rounded-full border-2 border-black text-base font-bold shadow-[2px_2px_0px_0px_black]"
+      >
         {mode === "teaser" ? (
           "우리 동네"
         ) : (
@@ -138,118 +155,199 @@ export default function DecisionCard({
             {profile?.nickname || "우리 아이"} 맞춤
           </>
         )}
-      </div>
+      </motion.div>
 
       {/* Infant Warning Badge */}
       {isInfant && (
-        <div className="mt-6 bg-red-600 text-white text-base font-black py-3 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_black] animate-bounce">
+        <motion.div 
+          initial={{ scale: 0, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ delay: 0.4, type: "spring", stiffness: 300, damping: 15 }}
+          className="mt-6 bg-red-600 text-white text-base font-black py-3 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_black] animate-bounce"
+        >
           ※ 주의: 마스크 착용 금지 (질식 위험)
-        </div>
+        </motion.div>
       )}
 
-      <h1 className="text-5xl font-black mt-4 whitespace-pre-wrap leading-tight underline decoration-yellow-400 decoration-4 underline-offset-4">
+      <motion.h1 
+        initial={{ y: 30, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.3, type: "spring", stiffness: 200 }}
+        className="text-5xl font-black mt-4 whitespace-pre-wrap leading-tight underline decoration-yellow-400 decoration-4 underline-offset-4"
+      >
         {aiGuide?.summary || "오늘 실외 활동은 짧게!"}
-      </h1>
+      </motion.h1>
 
-      <div className="bg-white/80 p-6 rounded-xl border-2 border-black text-left space-y-4">
-        <div className="space-y-2">
+      <motion.div 
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.4, duration: 0.5 }}
+        className="bg-white/80 p-6 rounded-xl border-2 border-black text-left space-y-4"
+      >
+        <motion.div 
+          initial={{ x: -20, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="space-y-2"
+        >
           <h3 className="font-bold text-base text-gray-600 flex items-center gap-1">
             <span className="w-2 h-2 bg-black rounded-full"></span> 왜 그런가요?
           </h3>
           <p className="text-gray-900 leading-relaxed font-bold text-lg">
             {aiGuide?.detail || "데이터를 분석 중입니다..."}
           </p>
-        </div>
+        </motion.div>
 
         {/* Action Items with Checkboxes */}
-        <div className="space-y-3">
+        <motion.div 
+          initial={{ x: -20, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ delay: 0.6 }}
+          className="space-y-3"
+        >
           <h3 className="font-bold text-base text-gray-600 flex items-center gap-1">
             <span className="w-2 h-2 bg-black rounded-full"></span> 아이를 위해 지금 결정하세요
           </h3>
           {aiGuide?.actionItems && aiGuide.actionItems.length > 0 ? (
             <div className="space-y-2">
               {aiGuide.actionItems.map((item, idx) => (
-                <label
+                <motion.label
                   key={idx}
+                  initial={{ x: -30, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{ delay: 0.7 + idx * 0.1, type: "spring", stiffness: 200 }}
+                  whileHover={{ scale: 1.02, x: 5 }}
+                  whileTap={{ scale: 0.98 }}
                   className="bg-white p-3 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_black] flex gap-3 items-center cursor-pointer hover:bg-gray-50 transition-colors active:translate-y-0.5 active:shadow-none"
                 >
                   <input type="checkbox" className="w-6 h-6 accent-black border-2 border-black rounded" />
                   <span className="text-gray-900 text-base font-bold">
                     {item}
                   </span>
-                </label>
+                </motion.label>
               ))}
             </div>
           ) : (
             <p className="text-xs text-gray-400">행동 지침을 불러오는 중입니다.</p>
           )}
-        </div>
+        </motion.div>
 
         {/* Scientific Basis Section */}
-        <div className="pt-4 mt-2 border-t-2 border-black border-dashed">
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.0 }}
+          className="pt-4 mt-2 border-t-2 border-black border-dashed"
+        >
           <div className="flex justify-between items-center mb-2">
             <p className="text-[10px] text-gray-500 leading-tight flex-1">
               ⓘ 이 결정은 소아 폐 발달 관련 논문(Gauderman et al., 2015 등)을 기반으로 환경 변수(온도, 습도)를 보정하여 산출되었습니다.
             </p>
-            <button
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => setShowDetail(!showDetail)}
               className="text-[10px] font-bold text-black underline underline-offset-2 ml-2 whitespace-nowrap"
             >
               {showDetail ? "수치 접기" : "실시간 수치"}
-            </button>
+            </motion.button>
           </div>
 
           <AnimatePresence>
             {showDetail && (
               <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
+                initial={{ height: 0, opacity: 0, scale: 0.95 }}
+                animate={{ height: "auto", opacity: 1, scale: 1 }}
+                exit={{ height: 0, opacity: 0, scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 300, damping: 25 }}
                 className="overflow-hidden mb-2"
               >
-                <div className="grid grid-cols-2 gap-2 bg-gray-50 p-2 rounded-lg border border-black/10">
-                  <div className="flex justify-between items-center px-2">
+                <motion.div 
+                  initial={{ y: -10 }}
+                  animate={{ y: 0 }}
+                  className="grid grid-cols-2 gap-2 bg-gray-50 p-2 rounded-lg border border-black/10"
+                >
+                  <motion.div 
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.1 }}
+                    className="flex justify-between items-center px-2"
+                  >
                     <span className="text-[10px] text-gray-500">초미세먼지</span>
                     <span className="text-xs font-bold">{airData?.pm25_value || 25} <small className="font-normal text-[10px]">µg/m³</small></span>
-                  </div>
-                  <div className="flex justify-between items-center px-2 border-l border-gray-200">
+                  </motion.div>
+                  <motion.div 
+                    initial={{ x: 20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.2 }}
+                    className="flex justify-between items-center px-2 border-l border-gray-200"
+                  >
                     <span className="text-[10px] text-gray-500">오존</span>
                     <span className="text-xs font-bold">{airData?.o3_value || 0.091} <small className="font-normal text-[10px]">ppm</small></span>
-                  </div>
-                </div>
+                  </motion.div>
+                </motion.div>
               </motion.div>
             )}
           </AnimatePresence>
 
           {aiGuide?.references && aiGuide.references.length > 0 && (
-             <div className="flex flex-wrap gap-1">
+             <motion.div 
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               transition={{ delay: 1.2 }}
+               className="flex flex-wrap gap-1"
+             >
                {aiGuide.references.map((ref, i) => (
-                 <span key={i} className="text-[9px] bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-gray-600">
+                 <motion.span 
+                   key={i}
+                   initial={{ scale: 0 }}
+                   animate={{ scale: 1 }}
+                   transition={{ delay: 1.3 + i * 0.05, type: "spring" }}
+                   className="text-[9px] bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-gray-600"
+                 >
                    {ref}
-                 </span>
+                 </motion.span>
                ))}
-             </div>
+             </motion.div>
           )}
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
       {mode === "teaser" && (
-        <div className="mt-4">
+        <motion.div 
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 1.4 }}
+          className="mt-4"
+        >
           <p className="text-sm font-bold text-gray-600 mb-2">
             우리 아이에게 딱 맞는 가이드가 궁금하다면?
           </p>
-          <button
+          <motion.button
+            whileHover={{ scale: 1.03, y: -2 }}
+            whileTap={{ scale: 0.97, y: 1 }}
             onClick={onOpenOnboarding}
             className="w-full py-4 bg-black text-white font-bold text-lg rounded-xl shadow-[4px_4px_0px_0px_rgba(100,100,100,1)] active:translate-y-1 active:shadow-none transition-all hover:bg-gray-900"
           >
             우리 아이 맞춤 결과 보기 👉
-          </button>
-        </div>
+          </motion.button>
+        </motion.div>
       )}
 
       {mode === "custom" && (
-        <div className="grid grid-cols-2 gap-3 mt-2">
-          <div className="bg-white p-4 rounded-xl border-2 border-black text-sm font-bold flex flex-col items-center justify-center gap-1 shadow-sm">
+        <motion.div 
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 1.4 }}
+          className="grid grid-cols-2 gap-3 mt-2"
+        >
+          <motion.div 
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 1.5, type: "spring", stiffness: 200 }}
+            whileHover={{ scale: 1.05, rotate: 2 }}
+            className="bg-white p-4 rounded-xl border-2 border-black text-sm font-bold flex flex-col items-center justify-center gap-1 shadow-sm"
+          >
             <span className="text-gray-500 text-xs">😷 마스크</span>
             <span className="text-indigo-600 text-lg">
               {aiGuide?.maskRecommendation?.includes("필수")
@@ -258,8 +356,14 @@ export default function DecisionCard({
                   ? "챙기면 좋아요"
                   : "필요 없어요"}
             </span>
-          </div>
-          <div className="bg-white p-4 rounded-xl border-2 border-black text-sm font-bold flex flex-col items-center justify-center gap-1 shadow-sm">
+          </motion.div>
+          <motion.div 
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 1.6, type: "spring", stiffness: 200 }}
+            whileHover={{ scale: 1.05, rotate: -2 }}
+            className="bg-white p-4 rounded-xl border-2 border-black text-sm font-bold flex flex-col items-center justify-center gap-1 shadow-sm"
+          >
             <span className="text-gray-500 text-xs">🏃 활동</span>
             <span className="text-orange-600 text-lg">
               {/* Mapping Logic for Activity */}
@@ -271,8 +375,8 @@ export default function DecisionCard({
                   ? "🙅 야외 자제"
                   : "⚽ 맘껏 뛰어놀아요"}
             </span>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
     </motion.div>
   );
