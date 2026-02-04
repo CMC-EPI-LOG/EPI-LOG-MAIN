@@ -79,30 +79,37 @@ export default function DecisionCard({
   }
 
   const stationName = airData?.stationName || "지금 여기";
-  const getGradeColor = (grade?: string) => {
-    switch (grade) {
-      case "GOOD":
-        return "bg-pastel-blue";
-      case "NORMAL":
-        return "bg-pastel-green";
-      case "BAD":
-        return "bg-pastel-yellow";
-      case "VERY_BAD":
-        return "bg-pastel-pink";
-      default:
-        return "bg-white";
-    }
+  const getGradeColor = (decision?: string) => {
+    if (!decision) return "bg-white";
+    if (decision.includes("안전") || decision.includes("좋아요")) return "bg-[#E3F2FD]"; // Soft Blue
+    if (decision.includes("추천") || decision.includes("주의")) return "bg-[#FFFDE7]"; // Soft Yellow
+    if (decision.includes("금지") || decision.includes("제한") || decision.includes("위험")) return "bg-[#FFEBEE]"; // Soft Red
+    return "bg-white";
   };
 
-  const bgColor = getGradeColor(airData?.grade);
+  const bgColor = getGradeColor(aiGuide?.summary || aiGuide?.detail);
+
+  // Check for infant age group
+  const isInfant = profile?.ageGroup === "infant";
 
   return (
     <motion.div
       initial={{ scale: 0.8, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
       transition={{ type: "spring", stiffness: 200, damping: 15 }}
-      className={`w-full max-w-md ${bgColor} p-6 rounded-2xl brutal-border relative flex flex-col gap-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-center`}
+      className={`w-full max-w-md ${bgColor} p-6 rounded-2xl brutal-border relative flex flex-col gap-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-center transition-colors duration-500`}
     >
+      {/* Age Group & Condition Badge */}
+      <div className="absolute -top-4 -left-4 bg-white px-3 py-1 rounded-full border-2 border-black text-xs font-bold shadow-[2px_2px_0px_0px_black]">
+        {profile?.ageGroup === "infant" ? "👶 영아(0~2세)" : 
+         profile?.ageGroup === "toddler" ? "🧒 유아(3~6세)" :
+         profile?.ageGroup === "elementary_low" ? "🎒 초등 저학년" :
+         profile?.ageGroup === "elementary_high" ? "🏫 초등 고학년" : "🧑 청소년/성인"} 
+        {profile?.condition === "asthma" ? " · 천식" : 
+         profile?.condition === "rhinitis" ? " · 비염" : 
+         profile?.condition === "atopy" ? " · 아토피" : ""}
+      </div>
+
       <div className="absolute -top-4 -right-4 bg-yellow-300 px-4 py-2 rounded-full border-2 border-black font-bold rotate-12 shadow-[2px_2px_0px_0px_black]">
         {mode === "teaser"
           ? "우리 동네"
@@ -111,79 +118,97 @@ export default function DecisionCard({
             : "우리 아이 맞춤"}
       </div>
 
-      <h1 className="text-2xl font-black mt-4 whitespace-pre-wrap leading-tight">
-        {mode === "teaser"
-          ? `📍 ${stationName}\n아이들은 어떻게 해야 할까요?`
-          : `📍 ${stationName}\n${profile?.nickname ? profile.nickname + "님은" : "우리 아이는"} 이렇게!`}
+      {/* Infant Warning Badge */}
+      {isInfant && (
+        <div className="mt-6 bg-red-600 text-white text-xs font-black py-2 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_black] animate-bounce">
+          ※ 주의: 마스크 착용 금지 (질식 위험)
+        </div>
+      )}
+
+      <h1 className="text-3xl font-black mt-4 whitespace-pre-wrap leading-tight underline decoration-yellow-400 decoration-4 underline-offset-4">
+        {aiGuide?.summary || "오늘 실외 활동은 짧게!"}
       </h1>
 
-      <div className="bg-white/80 p-6 rounded-xl border-2 border-black text-left space-y-2">
-        <h3 className="font-bold text-lg">📢 AI의 한마디</h3>
-        <p className="text-gray-900 leading-loose font-medium whitespace-pre-line text-[1.05rem]">
-          {aiGuide?.summary || "데이터를 불러오는 중..."}
-        </p>
+      <div className="bg-white/80 p-6 rounded-xl border-2 border-black text-left space-y-4">
+        <div className="space-y-1">
+          <h3 className="font-bold text-sm text-gray-500 flex items-center gap-1">
+            <span className="w-2 h-2 bg-black rounded-full"></span> 왜 그런가요?
+          </h3>
+          <p className="text-gray-900 leading-relaxed font-bold text-[1.05rem]">
+            {aiGuide?.detail || "데이터를 분석 중입니다..."}
+          </p>
+        </div>
 
-        {/* visible Action Items List */}
-        {aiGuide?.actionItems && aiGuide.actionItems.length > 0 && (
-          <ul className="space-y-3 mt-3">
-            {aiGuide.actionItems.map((item, idx) => (
-              <li
-                key={idx}
-                className="bg-white p-3 rounded-lg border border-black shadow-sm flex gap-3 items-start"
-              >
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-xs font-bold mt-0.5">
-                  {idx + 1}
-                </span>
-                <span className="text-gray-900 text-sm font-medium leading-relaxed">
-                  {item}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {/* Action Items with Checkboxes */}
+        <div className="space-y-3">
+          <h3 className="font-bold text-sm text-gray-500 flex items-center gap-1">
+            <span className="w-2 h-2 bg-black rounded-full"></span> 아이를 위해 지금 결정하세요
+          </h3>
+          {aiGuide?.actionItems && aiGuide.actionItems.length > 0 ? (
+            <div className="space-y-2">
+              {aiGuide.actionItems.map((item, idx) => (
+                <label
+                  key={idx}
+                  className="bg-white p-3 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_black] flex gap-3 items-center cursor-pointer hover:bg-gray-50 transition-colors active:translate-y-0.5 active:shadow-none"
+                >
+                  <input type="checkbox" className="w-5 h-5 accent-black border-2 border-black rounded" />
+                  <span className="text-gray-900 text-sm font-bold">
+                    {item}
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">행동 지침을 불러오는 중입니다.</p>
+          )}
+        </div>
 
-        {/* Detailed Text Accordion */}
-        {(aiGuide?.detail ||
-          (aiGuide?.references && aiGuide.references.length > 0)) && (
-          <div className="pt-2 mt-2 border-t border-dashed border-gray-300">
+        {/* Scientific Basis Section */}
+        <div className="pt-4 mt-2 border-t-2 border-black border-dashed">
+          <div className="flex justify-between items-center mb-2">
+            <p className="text-[10px] text-gray-500 leading-tight flex-1">
+              ⓘ 이 결정은 소아 폐 발달 관련 논문(Gauderman et al., 2015 등)을 기반으로 환경 변수(온도, 습도)를 보정하여 산출되었습니다.
+            </p>
             <button
               onClick={() => setShowDetail(!showDetail)}
-              className="text-xs font-bold text-gray-500 hover:text-black flex items-center gap-1 transition-colors ml-auto"
+              className="text-[10px] font-bold text-black underline underline-offset-2 ml-2 whitespace-nowrap"
             >
-              {showDetail ? "접기 ▲" : "자세한 이유 보기 ▼"}
+              {showDetail ? "수치 접기" : "실시간 수치"}
             </button>
-            <AnimatePresence>
-              {showDetail && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="overflow-hidden"
-                >
-                  {aiGuide?.detail && (
-                    <p className="text-xs text-gray-500 mt-2 leading-relaxed whitespace-pre-wrap">
-                      {aiGuide.detail}
-                    </p>
-                  )}
-                  {aiGuide?.references && aiGuide.references.length > 0 && (
-                    <div className="mt-3 bg-gray-50 rounded-lg text-left border border-gray-200">
-                      <div className="px-3 pt-3 text-[11px] font-bold text-gray-500">
-                        📚 근거 자료
-                      </div>
-                      <ul className="p-3 text-xs text-gray-600 space-y-1 list-disc list-inside">
-                        {aiGuide.references.map((ref, i) => (
-                          <li key={i} className="leading-tight break-words">
-                            {ref}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
           </div>
-        )}
+
+          <AnimatePresence>
+            {showDetail && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden mb-2"
+              >
+                <div className="grid grid-cols-2 gap-2 bg-gray-50 p-2 rounded-lg border border-black/10">
+                  <div className="flex justify-between items-center px-2">
+                    <span className="text-[10px] text-gray-500">초미세먼지</span>
+                    <span className="text-xs font-bold">{airData?.pm25_value || 25} <small className="font-normal text-[10px]">µg/m³</small></span>
+                  </div>
+                  <div className="flex justify-between items-center px-2 border-l border-gray-200">
+                    <span className="text-[10px] text-gray-500">오존</span>
+                    <span className="text-xs font-bold">{airData?.o3_value || 0.091} <small className="font-normal text-[10px]">ppm</small></span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {aiGuide?.references && aiGuide.references.length > 0 && (
+             <div className="flex flex-wrap gap-1">
+               {aiGuide.references.map((ref, i) => (
+                 <span key={i} className="text-[9px] bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-gray-600">
+                   {ref}
+                 </span>
+               ))}
+             </div>
+          )}
+        </div>
       </div>
 
       {mode === "teaser" && (

@@ -14,7 +14,7 @@ interface OnboardingModalProps {
 
 export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProfile }: OnboardingModalProps) {
   // const [nickname, setNickname] = useState(''); // Removed
-  const [ageGroup, setAgeGroup] = useState(currentProfile?.ageGroup || 'child_low');
+  const [ageGroup, setAgeGroup] = useState(currentProfile?.ageGroup || 'elementary_low');
   const [condition, setCondition] = useState(currentProfile?.condition || 'none');
 
   // Sync state with profile when modal opens
@@ -55,37 +55,40 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
               {/* Nickname Input Removed */}
 
               <div>
-                <label className="block font-bold mb-3">나이</label>
-                <div className="grid grid-cols-2 gap-2">
+                <label className="block font-bold mb-3 underline decoration-pastel-blue decoration-4 underline-offset-4">나이</label>
+                <div className="flex flex-col gap-2">
                   {[
-                    { value: 'infant', label: '유아 (0-6세)' },
-                    { value: 'child_low', label: '초등 저학년 (1-3학년)' },
-                    { value: 'child_high', label: '초등 고학년 (4-6학년)' },
-                    { value: 'adult', label: '청소년/성인' }
+                    { value: 'infant', label: '👶 영아 (0-2세)' },
+                    { value: 'toddler', label: '🧒 유아 (3-6세)' },
+                    { value: 'elementary_low', label: '🎒 초등 저학년 (7-9세)' },
+                    { value: 'elementary_high', label: '🏫 초등 고학년 (10-12세)' },
+                    { value: 'teen_adult', label: '🧑 청소년/성인 (13세~)' }
                   ].map((option) => (
                     <button
                       key={option.value}
                       type="button"
                       onClick={() => setAgeGroup(option.value)}
-                      className={`p-3 rounded-xl border-2 font-bold transition-all ${
+                      className={`p-3 rounded-xl border-2 font-bold transition-all text-left flex justify-between items-center ${
                         ageGroup === option.value
-                          ? 'bg-black text-white border-black'
+                          ? 'bg-black text-white border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)]'
                           : 'bg-white text-gray-500 border-gray-200 hover:border-black'
                       }`}
                     >
                       {option.label}
+                      {ageGroup === option.value && <span>✓</span>}
                     </button>
                   ))}
                 </div>
               </div>
 
               <div>
-                <label className="block font-bold mb-3">건강 상태</label>
-                <div className="grid grid-cols-3 gap-2">
+                <label className="block font-bold mb-3 underline decoration-pastel-pink decoration-4 underline-offset-4">건강 상태</label>
+                <div className="grid grid-cols-2 gap-2">
                   {[
                     { value: 'none', label: '해당 없음' },
                     { value: 'rhinitis', label: '알레르기 비염' },
-                    { value: 'asthma', label: '천식/쌕쌕거림' }
+                    { value: 'asthma', label: '천식/쌕쌕거림' },
+                    { value: 'atopy', label: '아토피' }
                   ].map((option) => (
                     <button
                       key={option.value}

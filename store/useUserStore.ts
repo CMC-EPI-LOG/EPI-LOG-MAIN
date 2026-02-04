@@ -34,8 +34,8 @@ export interface LocationData {
 
 export interface UserProfile {
   nickname?: string;
-  ageGroup: string; // 'child_low' | 'child_high' | 'infant' | 'adult'
-  condition: string; // 'none' | 'rhinitis' | 'asthma'
+  ageGroup: string; // 'infant' | 'toddler' | 'elementary_low' | 'elementary_high' | 'teen_adult'
+  condition: string; // 'none' | 'rhinitis' | 'asthma' | 'atopy'
 }
 
 interface UserState {
