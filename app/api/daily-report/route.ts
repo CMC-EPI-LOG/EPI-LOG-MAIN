@@ -74,6 +74,11 @@ export async function POST(request: Request) {
                     Math.max(airData.realtime.pm10.grade, airData.realtime.pm25.grade) === 3 ? 'BAD' :
                     Math.max(airData.realtime.pm10.grade, airData.realtime.pm25.grade) === 2 ? 'NORMAL' : 'GOOD',
              value: airData.realtime.pm10.value, // Just show PM10 as rep value
+             // Extract numeric values for display
+             pm25_value: airData.realtime.pm25?.value,
+             pm10_value: airData.realtime.pm10?.value,
+             o3_value: airData.realtime.o3?.value,
+             no2_value: airData.realtime.no2?.value,
              detail: airData.realtime
            };
         }
