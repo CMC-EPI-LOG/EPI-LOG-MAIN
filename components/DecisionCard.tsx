@@ -8,6 +8,8 @@ interface AirData {
   grade?: string; // 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD'
   value?: number;
   stationName?: string;
+  pm25_value?: number;
+  o3_value?: number;
   // Add other fields as per API response
 }
 
