@@ -81,15 +81,29 @@ export default function DecisionCard({
   }
 
   const stationName = airData?.stationName || "지금 여기";
-  const getGradeColor = (decision?: string) => {
-    if (!decision) return "bg-white";
-    if (decision.includes("안전") || decision.includes("좋아요")) return "bg-[#E3F2FD]"; // Soft Blue
-    if (decision.includes("추천") || decision.includes("주의")) return "bg-[#FFFDE7]"; // Soft Yellow
-    if (decision.includes("금지") || decision.includes("제한") || decision.includes("위험")) return "bg-[#FFEBEE]"; // Soft Red
-    return "bg-white";
+  
+  // Determine background color based on air quality grade
+  const getGradeColor = () => {
+    // Check airData.grade first (from BFF)
+    if (airData?.grade) {
+      switch (airData.grade) {
+        case 'GOOD': return "bg-blue-100"; // 좋음 - 파란색
+        case 'NORMAL': return "bg-green-100"; // 보통 - 녹색
+        case 'BAD': return "bg-orange-100"; // 나쁨 - 주황색
+        case 'VERY_BAD': return "bg-red-100"; // 매우나쁨 - 빨간색
+      }
+    }
+    
+    // Fallback: Check decision keywords
+    const decision = aiGuide?.summary || aiGuide?.detail || "";
+    if (decision.includes("안전") || decision.includes("좋아요") || decision.includes("괜찮")) return "bg-blue-100";
+    if (decision.includes("추천") || decision.includes("주의")) return "bg-orange-100";
+    if (decision.includes("금지") || decision.includes("제한") || decision.includes("위험")) return "bg-red-100";
+    
+    return "bg-green-100"; // Default: 보통
   };
 
-  const bgColor = getGradeColor(aiGuide?.summary || aiGuide?.detail);
+  const bgColor = getGradeColor();
 
   // Check for infant age group
   const isInfant = profile?.ageGroup === "infant";
@@ -102,7 +116,7 @@ export default function DecisionCard({
       className={`w-full max-w-md ${bgColor} p-6 rounded-2xl brutal-border relative flex flex-col gap-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-center transition-colors duration-500`}
     >
       {/* Age Group & Condition Badge */}
-      <div className="absolute -top-4 -left-4 bg-white px-3 py-1 rounded-full border-2 border-black text-xs font-bold shadow-[2px_2px_0px_0px_black]">
+      <div className="absolute -top-4 -left-4 bg-white px-4 py-2 rounded-full border-2 border-black text-sm font-bold shadow-[2px_2px_0px_0px_black]">
         {profile?.ageGroup === "infant" ? "👶 영아(0~2세)" : 
          profile?.ageGroup === "toddler" ? "🧒 유아(3~6세)" :
          profile?.ageGroup === "elementary_low" ? "🎒 초등 저학년" :
@@ -112,7 +126,7 @@ export default function DecisionCard({
          profile?.condition === "atopy" ? " · 아토피" : ""}
       </div>
 
-      <div className="absolute -top-4 -right-4 bg-yellow-300 px-4 py-2 rounded-full border-2 border-black font-bold rotate-12 shadow-[2px_2px_0px_0px_black]">
+      <div className="absolute -top-4 -right-4 bg-yellow-300 px-5 py-2 rounded-full border-2 border-black text-base font-bold rotate-12 shadow-[2px_2px_0px_0px_black]">
         {mode === "teaser" ? (
           "우리 동네"
         ) : (
@@ -128,28 +142,28 @@ export default function DecisionCard({
 
       {/* Infant Warning Badge */}
       {isInfant && (
-        <div className="mt-6 bg-red-600 text-white text-xs font-black py-2 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_black] animate-bounce">
+        <div className="mt-6 bg-red-600 text-white text-base font-black py-3 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_black] animate-bounce">
           ※ 주의: 마스크 착용 금지 (질식 위험)
         </div>
       )}
 
-      <h1 className="text-3xl font-black mt-4 whitespace-pre-wrap leading-tight underline decoration-yellow-400 decoration-4 underline-offset-4">
+      <h1 className="text-5xl font-black mt-4 whitespace-pre-wrap leading-tight underline decoration-yellow-400 decoration-4 underline-offset-4">
         {aiGuide?.summary || "오늘 실외 활동은 짧게!"}
       </h1>
 
       <div className="bg-white/80 p-6 rounded-xl border-2 border-black text-left space-y-4">
-        <div className="space-y-1">
-          <h3 className="font-bold text-sm text-gray-500 flex items-center gap-1">
+        <div className="space-y-2">
+          <h3 className="font-bold text-base text-gray-600 flex items-center gap-1">
             <span className="w-2 h-2 bg-black rounded-full"></span> 왜 그런가요?
           </h3>
-          <p className="text-gray-900 leading-relaxed font-bold text-[1.05rem]">
+          <p className="text-gray-900 leading-relaxed font-bold text-lg">
             {aiGuide?.detail || "데이터를 분석 중입니다..."}
           </p>
         </div>
 
         {/* Action Items with Checkboxes */}
         <div className="space-y-3">
-          <h3 className="font-bold text-sm text-gray-500 flex items-center gap-1">
+          <h3 className="font-bold text-base text-gray-600 flex items-center gap-1">
             <span className="w-2 h-2 bg-black rounded-full"></span> 아이를 위해 지금 결정하세요
           </h3>
           {aiGuide?.actionItems && aiGuide.actionItems.length > 0 ? (
@@ -159,8 +173,8 @@ export default function DecisionCard({
                   key={idx}
                   className="bg-white p-3 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_black] flex gap-3 items-center cursor-pointer hover:bg-gray-50 transition-colors active:translate-y-0.5 active:shadow-none"
                 >
-                  <input type="checkbox" className="w-5 h-5 accent-black border-2 border-black rounded" />
-                  <span className="text-gray-900 text-sm font-bold">
+                  <input type="checkbox" className="w-6 h-6 accent-black border-2 border-black rounded" />
+                  <span className="text-gray-900 text-base font-bold">
                     {item}
                   </span>
                 </label>
