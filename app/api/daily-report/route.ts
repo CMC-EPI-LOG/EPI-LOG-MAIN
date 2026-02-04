@@ -4,23 +4,18 @@ const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
 
 function mapProfileToAiSchema(profile: any) {
-  // Internal to AI Schema Mapping
-  // Internal Age: 'infant', 'child_low', 'child_high', 'adult'
-  // AI Age: 'infant', 'elementary_low', 'elementary_high', 'teen'
-  let aiAge = 'elementary_low'; // Default fallback? Or maybe define explicit mapping
+  // Updated to 5 age groups + atopy condition
+  // Internal Age Groups: 'infant', 'toddler', 'elementary_low', 'elementary_high', 'teen_adult'
+  // AI Age Groups: Same (direct mapping)
+  let aiAge = profile.ageGroup || 'elementary_low'; // Direct pass-through with fallback
   
-  if (profile.ageGroup === 'infant') aiAge = 'infant';
-  else if (profile.ageGroup === 'child_low') aiAge = 'elementary_low';
-  else if (profile.ageGroup === 'child_high') aiAge = 'elementary_high';
-  else if (profile.ageGroup === 'adult') aiAge = 'teen'; 
-
-
-  // Internal Condition: 'none', 'rhinitis', 'asthma'
-  // AI Condition: 'asthma', 'rhinitis', 'none', 'etc'
-  // Direct mapping mostly works now with new keys
-  let aiCondition = 'none';
+  // Internal Condition: 'none', 'rhinitis', 'asthma', 'atopy'
+  // AI Condition: 'general', 'rhinitis', 'asthma', 'atopy'
+  let aiCondition = 'general'; // Backend uses 'general' for none
   if (profile.condition === 'asthma') aiCondition = 'asthma';
   else if (profile.condition === 'rhinitis') aiCondition = 'rhinitis';
+  else if (profile.condition === 'atopy') aiCondition = 'atopy';
+  else if (profile.condition === 'none') aiCondition = 'general';
   
   return {
     ageGroup: aiAge,

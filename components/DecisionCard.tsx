@@ -42,7 +42,7 @@ export default function DecisionCard({
   isLoading,
 }: DecisionCardProps) {
   const [loadingText, setLoadingText] = useState("대기질 정보를 수신 중... 📡");
-  const [showDetail, setShowDetail] = useState(false);
+  const [showDetail, setShowDetail] = useState(true);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -113,11 +113,17 @@ export default function DecisionCard({
       </div>
 
       <div className="absolute -top-4 -right-4 bg-yellow-300 px-4 py-2 rounded-full border-2 border-black font-bold rotate-12 shadow-[2px_2px_0px_0px_black]">
-        {mode === "teaser"
-          ? "우리 동네"
-          : profile?.nickname
-            ? ` ${profile.nickname} 맞춤`
-            : "우리 아이 맞춤"}
+        {mode === "teaser" ? (
+          "우리 동네"
+        ) : (
+          <>
+            {profile?.ageGroup === "infant" ? "👶 " : 
+             profile?.ageGroup === "toddler" ? "🧒 " :
+             profile?.ageGroup === "elementary_low" ? "🎒 " :
+             profile?.ageGroup === "elementary_high" ? "🏫 " : "🧑 "}
+            {profile?.nickname || "우리 아이"} 맞춤
+          </>
+        )}
       </div>
 
       {/* Infant Warning Badge */}
