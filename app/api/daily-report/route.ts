@@ -144,6 +144,15 @@ export async function POST(request: Request) {
       airData.stationName = targetStation;
     }
 
+    // Merge numeric values from AI API response into airData if not present
+    // This ensures we always have pm25_value, o3_value etc even if AirKorea API fails
+    if (aiData) {
+      if (!airData.pm25_value && aiData.pm25_value) airData.pm25_value = aiData.pm25_value;
+      if (!airData.o3_value && aiData.o3_value) airData.o3_value = aiData.o3_value;
+      if (!airData.pm10_value && aiData.pm10_value) airData.pm10_value = aiData.pm10_value;
+      if (!airData.no2_value && aiData.no2_value) airData.no2_value = aiData.no2_value;
+    }
+
     return NextResponse.json({
       airQuality: airData,
       aiGuide: aiData,
