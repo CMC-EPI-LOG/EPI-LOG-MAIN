@@ -86,6 +86,10 @@ export async function POST(request: Request) {
              pm10_value: airData.pm10_value,
              o3_value: airData.o3_value,
              no2_value: airData.no2_value,
+             co_value: airData.co_value,
+             so2_value: airData.so2_value,
+             temp: airData.temp,
+             humidity: airData.humidity,
              detail: {
                pm10: { grade: pm10Grade, value: airData.pm10_value },
                pm25: { grade: pm25Grade, value: airData.pm25_value },

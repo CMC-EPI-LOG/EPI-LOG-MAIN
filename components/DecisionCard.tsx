@@ -9,8 +9,13 @@ interface AirData {
   value?: number;
   stationName?: string;
   pm25_value?: number;
+  pm10_value?: number;
   o3_value?: number;
-  // Add other fields as per API response
+  no2_value?: number;
+  co_value?: number;
+  so2_value?: number;
+  temp?: number;
+  humidity?: number;
 }
 
 interface AiGuide {
@@ -265,25 +270,110 @@ export default function DecisionCard({
                 <motion.div 
                   initial={{ y: -10 }}
                   animate={{ y: 0 }}
-                  className="grid grid-cols-2 gap-2 bg-gray-50 p-2 rounded-lg border border-black/10"
+                  className="grid grid-cols-2 gap-2 bg-gray-50 p-3 rounded-lg border border-black/10"
                 >
+                  {/* PM2.5 */}
                   <motion.div 
                     initial={{ x: -20, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     transition={{ delay: 0.1 }}
-                    className="flex justify-between items-center px-2"
+                    className="flex justify-between items-center px-2 py-1"
                   >
-                    <span className="text-[10px] text-gray-500">초미세먼지</span>
+                    <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span>💨</span> 초미세먼지
+                    </span>
                     <span className="text-xs font-bold">{airData?.pm25_value || 25} <small className="font-normal text-[10px]">µg/m³</small></span>
                   </motion.div>
+
+                  {/* PM10 */}
                   <motion.div 
                     initial={{ x: 20, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
-                    transition={{ delay: 0.2 }}
-                    className="flex justify-between items-center px-2 border-l border-gray-200"
+                    transition={{ delay: 0.15 }}
+                    className="flex justify-between items-center px-2 py-1 border-l border-gray-200"
                   >
-                    <span className="text-[10px] text-gray-500">오존</span>
-                    <span className="text-xs font-bold">{airData?.o3_value || 0.091} <small className="font-normal text-[10px]">ppm</small></span>
+                    <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span>🌫️</span> 미세먼지
+                    </span>
+                    <span className="text-xs font-bold">{airData?.pm10_value || 50} <small className="font-normal text-[10px]">µg/m³</small></span>
+                  </motion.div>
+
+                  {/* O3 */}
+                  <motion.div 
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.2 }}
+                    className="flex justify-between items-center px-2 py-1 border-t border-gray-200"
+                  >
+                    <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span>☀️</span> 오존
+                    </span>
+                    <span className="text-xs font-bold">{airData?.o3_value || 0.05} <small className="font-normal text-[10px]">ppm</small></span>
+                  </motion.div>
+
+                  {/* NO2 */}
+                  <motion.div 
+                    initial={{ x: 20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.25 }}
+                    className="flex justify-between items-center px-2 py-1 border-l border-t border-gray-200"
+                  >
+                    <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span>🚗</span> 이산화질소
+                    </span>
+                    <span className="text-xs font-bold">{airData?.no2_value || 0.03} <small className="font-normal text-[10px]">ppm</small></span>
+                  </motion.div>
+
+                  {/* Temperature */}
+                  <motion.div 
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.3 }}
+                    className="flex justify-between items-center px-2 py-1 border-t border-gray-200 bg-blue-50/50"
+                  >
+                    <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span>🌡️</span> 온도
+                    </span>
+                    <span className="text-xs font-bold text-blue-600">{airData?.temp || 22} <small className="font-normal text-[10px]">°C</small></span>
+                  </motion.div>
+
+                  {/* Humidity */}
+                  <motion.div 
+                    initial={{ x: 20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.35 }}
+                    className="flex justify-between items-center px-2 py-1 border-l border-t border-gray-200 bg-cyan-50/50"
+                  >
+                    <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span>💧</span> 습도
+                    </span>
+                    <span className="text-xs font-bold text-cyan-600">{airData?.humidity || 45} <small className="font-normal text-[10px]">%</small></span>
+                  </motion.div>
+
+                  {/* CO */}
+                  <motion.div 
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.4 }}
+                    className="flex justify-between items-center px-2 py-1 border-t border-gray-200"
+                  >
+                    <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span>🏭</span> 일산화탄소
+                    </span>
+                    <span className="text-xs font-bold">{airData?.co_value || 0.5} <small className="font-normal text-[10px]">ppm</small></span>
+                  </motion.div>
+
+                  {/* SO2 */}
+                  <motion.div 
+                    initial={{ x: 20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.45 }}
+                    className="flex justify-between items-center px-2 py-1 border-l border-t border-gray-200"
+                  >
+                    <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span>⚗️</span> 아황산가스
+                    </span>
+                    <span className="text-xs font-bold">{airData?.so2_value || 0.003} <small className="font-normal text-[10px]">ppm</small></span>
                   </motion.div>
                 </motion.div>
               </motion.div>
