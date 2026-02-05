@@ -38,9 +38,9 @@ export default function ShareButton({ nickname, region, action }: ShareButtonPro
   return (
     <button
       onClick={handleShare}
-      className="w-full mt-4 py-4 bg-[#FEE500] text-[#191919] font-black text-lg rounded-xl flex items-center justify-center gap-2 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-[#FDD835] active:translate-y-1 active:shadow-none transition-all border-2 border-black"
+      className="w-full py-4 px-6 bg-[#FEE500] text-[#1A1A1A] font-black text-lg rounded-[24px] flex items-center justify-center gap-2 border-[3px] border-black shadow-bento hover:bg-[#FDD835] btn-press"
     >
-      <Share2 size={20} className="stroke-[3px]" />
+      <Share2 size={22} className="stroke-[3px]" />
       이 결과 다른 엄마에게 공유하기
     </button>
   );

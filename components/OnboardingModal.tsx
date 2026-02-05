@@ -13,11 +13,9 @@ interface OnboardingModalProps {
 }
 
 export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProfile }: OnboardingModalProps) {
-  // const [nickname, setNickname] = useState(''); // Removed
   const [ageGroup, setAgeGroup] = useState(currentProfile?.ageGroup || 'elementary_low');
   const [condition, setCondition] = useState(currentProfile?.condition || 'none');
 
-  // Sync state with profile when modal opens
   useEffect(() => {
     if (isOpen && currentProfile) {
       setAgeGroup(currentProfile.ageGroup);
@@ -27,8 +25,7 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // if (!nickname.trim()) return;
-    onSubmit({ nickname: '', ageGroup, condition }); // Pass empty string or undefined
+    onSubmit({ nickname: '', ageGroup, condition });
     onClose();
   };
 
@@ -40,23 +37,33 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
-            className="w-full max-w-sm bg-pastel-yellow p-6 rounded-2xl border-4 border-black shadow-[8px_8px_0px_0px_black] relative"
+            className="w-full max-w-md bg-white p-8 rounded-[24px] border-[3px] border-black shadow-bento relative"
           >
+            {/* Close Button */}
             <button 
               onClick={onClose}
-              className="absolute top-4 right-4 p-1 hover:bg-black/10 rounded-full transition-colors"
+              className="absolute top-6 right-6 p-2 hover:bg-gray-100 rounded-full transition-colors border-[3px] border-black bg-white shadow-bento-sm"
             >
-              <X size={24} />
+              <X size={20} strokeWidth={3} />
             </button>
 
-            <h2 className="text-2xl font-black mb-6 text-center">📝 아이 정보 입력</h2>
+            {/* Header */}
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-black mb-2">
+                <span className="highlighter-yellow">아이 정보 입력</span>
+              </h2>
+              <p className="text-sm text-gray-600 handwriting">
+                맞춤 공기질 정보를 위해 알려주세요
+              </p>
+            </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Nickname Input Removed */}
-
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Age Group Section */}
               <div>
-                <label className="block font-bold mb-3 underline decoration-pastel-blue decoration-4 underline-offset-4">나이</label>
-                <div className="flex flex-col gap-2">
+                <label className="block font-black text-lg mb-4">
+                  <span className="highlighter-mint">나이</span>
+                </label>
+                <div className="flex flex-col gap-3">
                   {[
                     { value: 'infant', label: '👶 영아 (0-2세)' },
                     { value: 'toddler', label: '🧒 유아 (3-6세)' },
@@ -68,49 +75,55 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
                       key={option.value}
                       type="button"
                       onClick={() => setAgeGroup(option.value)}
-                      className={`p-3 rounded-xl border-2 font-bold transition-all text-left flex justify-between items-center ${
+                      className={`p-4 rounded-[20px] border-[3px] font-bold transition-all text-left flex justify-between items-center ${
                         ageGroup === option.value
-                          ? 'bg-black text-white border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)]'
-                          : 'bg-white text-gray-500 border-gray-200 hover:border-black'
+                          ? 'bg-black text-white border-black shadow-bento-sm'
+                          : 'bg-gray-50 text-gray-700 border-gray-300 hover:border-black hover:shadow-bento-sm'
                       }`}
                     >
-                      {option.label}
-                      {ageGroup === option.value && <span>✓</span>}
+                      <span>{option.label}</span>
+                      {ageGroup === option.value && <span className="text-xl">✓</span>}
                     </button>
                   ))}
                 </div>
               </div>
 
+              {/* Health Condition Section */}
               <div>
-                <label className="block font-bold mb-3 underline decoration-pastel-pink decoration-4 underline-offset-4">건강 상태</label>
-                <div className="grid grid-cols-2 gap-2">
+                <label className="block font-black text-lg mb-4">
+                  <span className="highlighter-yellow">건강 상태</span>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
                   {[
-                    { value: 'none', label: '해당 없음' },
-                    { value: 'rhinitis', label: '알레르기 비염' },
-                    { value: 'asthma', label: '천식/쌕쌕거림' },
-                    { value: 'atopy', label: '아토피' }
+                    { value: 'none', label: '해당 없음', icon: '✨' },
+                    { value: 'rhinitis', label: '알레르기 비염', icon: '🤧' },
+                    { value: 'asthma', label: '천식', icon: '😮‍💨' },
+                    { value: 'atopy', label: '아토피', icon: '🩹' }
                   ].map((option) => (
                     <button
                       key={option.value}
                       type="button"
                       onClick={() => setCondition(option.value)}
-                      className={`p-3 rounded-xl border-2 font-bold transition-all ${
+                      className={`p-4 rounded-[20px] border-[3px] font-bold transition-all text-center ${
                         condition === option.value
-                          ? 'bg-black text-white border-black'
-                          : 'bg-white text-gray-500 border-gray-200 hover:border-black'
+                          ? 'bg-black text-white border-black shadow-bento-sm'
+                          : 'bg-gray-50 text-gray-700 border-gray-300 hover:border-black hover:shadow-bento-sm'
                       }`}
                     >
-                      {option.label}
+                      <div className="text-2xl mb-1">{option.icon}</div>
+                      <div className="text-sm">{option.label}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
+              {/* Submit Button */}
               <button
                 type="submit"
-                className="w-full mt-6 py-4 bg-pastel-blue text-black font-black text-lg rounded-xl border-2 border-black shadow-[4px_4px_0px_0px_black] active:translate-y-1 active:shadow-none transition-all hover:bg-cyan-100"
+                className="w-full mt-8 py-5 bg-[#FEE500] text-black font-black text-xl rounded-[24px] border-[3px] border-black shadow-bento hover:bg-[#FDD835] btn-press flex items-center justify-center gap-2"
               >
-                결과 보러 가기 🚀
+                결과 보러 가기
+                <span className="text-2xl">🚀</span>
               </button>
             </form>
           </motion.div>

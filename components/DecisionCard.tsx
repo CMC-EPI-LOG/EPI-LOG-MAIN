@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { UserProfile } from "@/store/useUserStore";
+import { getCharacterPath, getGradeBackgroundColor } from "@/lib/characterUtils";
+import Image from "next/image";
 
 interface AirData {
   grade?: string; // 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD'
@@ -87,28 +89,9 @@ export default function DecisionCard({
 
   const stationName = airData?.stationName || "지금 여기";
   
-  // Determine background color based on air quality grade
-  const getGradeColor = () => {
-    // Check airData.grade first (from BFF)
-    if (airData?.grade) {
-      switch (airData.grade) {
-        case 'GOOD': return "bg-blue-100"; // 좋음 - 파란색
-        case 'NORMAL': return "bg-green-100"; // 보통 - 녹색
-        case 'BAD': return "bg-orange-100"; // 나쁨 - 주황색
-        case 'VERY_BAD': return "bg-red-100"; // 매우나쁨 - 빨간색
-      }
-    }
-    
-    // Fallback: Check decision keywords
-    const decision = aiGuide?.summary || aiGuide?.detail || "";
-    if (decision.includes("안전") || decision.includes("좋아요") || decision.includes("괜찮")) return "bg-blue-100";
-    if (decision.includes("추천") || decision.includes("주의")) return "bg-orange-100";
-    if (decision.includes("금지") || decision.includes("제한") || decision.includes("위험")) return "bg-red-100";
-    
-    return "bg-green-100"; // Default: 보통
-  };
-
-  const bgColor = getGradeColor();
+  // Get character path and background color using utility functions
+  const characterPath = getCharacterPath(airData?.grade, profile?.ageGroup);
+  const bgColor = getGradeBackgroundColor(airData?.grade);
 
   // Check for infant age group
   const isInfant = profile?.ageGroup === "infant";
@@ -124,14 +107,14 @@ export default function DecisionCard({
         duration: 0.6 
       }}
       whileHover={{ scale: 1.02, transition: { duration: 0.2 } }}
-      className={`w-full max-w-md ${bgColor} p-6 rounded-2xl brutal-border relative flex flex-col gap-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-center transition-colors duration-500`}
+      className={`w-full max-w-md ${bgColor} p-6 rounded-2xl brutal-border relative flex flex-col gap-4 text-center transition-colors duration-500`}
     >
       {/* Age Group & Condition Badge */}
       <motion.div 
         initial={{ x: -100, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
-        className="absolute -top-4 -left-4 bg-white px-4 py-2 rounded-full border-2 border-black text-sm font-bold shadow-[2px_2px_0px_0px_black]"
+        className="absolute -top-4 -left-4 bg-white px-4 py-2 rounded-full brutal-border-sm text-sm font-bold"
       >
         {profile?.ageGroup === "infant" ? "👶 영아(0~2세)" : 
          profile?.ageGroup === "toddler" ? "🧒 유아(3~6세)" :
@@ -147,7 +130,7 @@ export default function DecisionCard({
         animate={{ x: 0, opacity: 1, rotate: 12 }}
         transition={{ delay: 0.3, type: "spring", stiffness: 200 }}
         whileHover={{ rotate: -5, scale: 1.1 }}
-        className="absolute -top-4 -right-4 bg-yellow-300 px-5 py-2 rounded-full border-2 border-black text-base font-bold shadow-[2px_2px_0px_0px_black]"
+        className="absolute -top-4 -right-4 bg-yellow-300 px-5 py-2 rounded-full brutal-border-sm text-base font-bold"
       >
         {mode === "teaser" ? (
           "우리 동네"
@@ -162,13 +145,34 @@ export default function DecisionCard({
         )}
       </motion.div>
 
+      {/* Character Display Section */}
+      <motion.div
+        initial={{ scale: 0, opacity: 0, rotate: -10 }}
+        animate={{ scale: 1, opacity: 1, rotate: 0 }}
+        transition={{ delay: 0.3, type: "spring", stiffness: 200, damping: 15 }}
+        className="relative w-full flex justify-center items-center my-4"
+      >
+        
+        {/* Character Image with Glow Effect */}
+        <div className="relative w-48 h-48 character-glow">
+          <Image
+            src={characterPath}
+            alt="캐릭터"
+            width={192}
+            height={192}
+            className="w-full h-full object-contain relative z-10"
+            priority
+          />
+        </div>
+      </motion.div>
+
       {/* Infant Warning Badge */}
       {isInfant && (
         <motion.div 
           initial={{ scale: 0, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          transition={{ delay: 0.4, type: "spring", stiffness: 300, damping: 15 }}
-          className="mt-6 bg-red-600 text-white text-base font-black py-3 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_black] animate-bounce"
+          transition={{ delay: 0.5, type: "spring", stiffness: 300, damping: 15 }}
+          className="bg-red-600 text-white text-base font-black py-3 rounded-lg brutal-border-sm animate-bounce"
         >
           ※ 주의: 마스크 착용 금지 (질식 위험)
         </motion.div>
@@ -177,17 +181,19 @@ export default function DecisionCard({
       <motion.h1 
         initial={{ y: 30, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.3, type: "spring", stiffness: 200 }}
-        className="text-5xl font-black mt-4 whitespace-pre-wrap leading-tight underline decoration-yellow-400 decoration-4 underline-offset-4"
+        transition={{ delay: 0.6, type: "spring", stiffness: 200 }}
+        className="text-4xl text-extra-bold mt-2 whitespace-pre-wrap leading-tight"
       >
-        {aiGuide?.summary || "오늘 실외 활동은 짧게!"}
+        <span className="crayon-underline">
+          {aiGuide?.summary || "오늘 실외 활동은 짧게!"}
+        </span>
       </motion.h1>
 
       <motion.div 
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.4, duration: 0.5 }}
-        className="bg-white/80 p-6 rounded-xl border-2 border-black text-left space-y-4"
+        transition={{ delay: 0.7, duration: 0.5 }}
+        className="bg-white/90 p-6 rounded-xl brutal-border text-left space-y-4"
       >
         <motion.div 
           initial={{ x: -20, opacity: 0 }}
@@ -195,10 +201,10 @@ export default function DecisionCard({
           transition={{ delay: 0.5 }}
           className="space-y-2"
         >
-          <h3 className="font-bold text-base text-gray-600 flex items-center gap-1">
-            <span className="w-2 h-2 bg-black rounded-full"></span> 왜 그런가요?
+          <h3 className="font-bold text-base text-gray-800 flex items-center gap-1">
+            <span className="w-2 h-2 bg-black rounded-full"></span> <span className="highlighter-yellow">왜 그런가요?</span>
           </h3>
-          <p className="text-gray-900 leading-relaxed font-bold text-lg">
+          <p className="text-gray-900 leading-relaxed font-bold text-lg handwriting">
             {aiGuide?.detail || "데이터를 분석 중입니다..."}
           </p>
         </motion.div>
@@ -210,8 +216,8 @@ export default function DecisionCard({
           transition={{ delay: 0.6 }}
           className="space-y-3"
         >
-          <h3 className="font-bold text-base text-gray-600 flex items-center gap-1">
-            <span className="w-2 h-2 bg-black rounded-full"></span> 아이를 위해 지금 결정하세요
+          <h3 className="font-bold text-base text-gray-800 flex items-center gap-1">
+            <span className="w-2 h-2 bg-black rounded-full"></span> <span className="highlighter-mint">아이를 위해 지금 결정하세요</span>
           </h3>
           {aiGuide?.actionItems && aiGuide.actionItems.length > 0 ? (
             <div className="space-y-2">
@@ -223,7 +229,7 @@ export default function DecisionCard({
                   transition={{ delay: 0.7 + idx * 0.1, type: "spring", stiffness: 200 }}
                   whileHover={{ scale: 1.02, x: 5 }}
                   whileTap={{ scale: 0.98 }}
-                  className="bg-white p-3 rounded-lg border-2 border-black shadow-[2px_2px_0px_0px_black] flex gap-3 items-center cursor-pointer hover:bg-gray-50 transition-colors active:translate-y-0.5 active:shadow-none"
+                  className="bg-white p-3 rounded-lg brutal-border-sm flex gap-3 items-center cursor-pointer hover:bg-yellow-50 btn-press"
                 >
                   <input type="checkbox" className="w-6 h-6 accent-black border-2 border-black rounded" />
                   <span className="text-gray-900 text-base font-bold">
@@ -436,7 +442,7 @@ export default function DecisionCard({
             animate={{ scale: 1 }}
             transition={{ delay: 1.5, type: "spring", stiffness: 200 }}
             whileHover={{ scale: 1.05, rotate: 2 }}
-            className="bg-white p-4 rounded-xl border-2 border-black text-sm font-bold flex flex-col items-center justify-center gap-1 shadow-sm"
+            className="bg-white p-4 rounded-xl brutal-border-sm text-sm font-bold flex flex-col items-center justify-center gap-1 btn-press"
           >
             <span className="text-gray-500 text-xs">😷 마스크</span>
             <span className="text-indigo-600 text-lg">
@@ -452,7 +458,7 @@ export default function DecisionCard({
             animate={{ scale: 1 }}
             transition={{ delay: 1.6, type: "spring", stiffness: 200 }}
             whileHover={{ scale: 1.05, rotate: -2 }}
-            className="bg-white p-4 rounded-xl border-2 border-black text-sm font-bold flex flex-col items-center justify-center gap-1 shadow-sm"
+            className="bg-white p-4 rounded-xl brutal-border-sm text-sm font-bold flex flex-col items-center justify-center gap-1 btn-press"
           >
             <span className="text-gray-500 text-xs">🏃 활동</span>
             <span className="text-orange-600 text-lg">

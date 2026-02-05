@@ -1,36 +1,123 @@
 @import "tailwindcss";
 
 :root {
-  --background: #FFFDF5; /* Soft pastel cream/yellowish */
-  --foreground: #171717;
-  --pastel-blue: #E0F7FA;
-  --pastel-pink: #F8BBD0;
-  --pastel-green: #C8E6C9;
-  --pastel-yellow: #FFF9C4;
+  /* Neo-brutalism Bento Box Design System */
+  --background: #F5F5F5;
+  --foreground: #1A1A1A;
+  
+  /* Border System */
+  --border-width: 3px;
+  --border-radius-bento: 24px;
+  --border-color: #1A1A1A;
+  
+  /* Shadow System */
+  --shadow-bento: 6px 6px 0px #1A1A1A;
+  --shadow-bento-sm: 4px 4px 0px #1A1A1A;
+  
+  /* Card Background */
+  --card-bg: #FFFFFF;
+  
+  /* Highlighter colors */
+  --highlight-yellow: #FEE501;
+  --highlight-mint: #A7F3D0;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-pastel-blue: var(--pastel-blue);
-  --color-pastel-pink: var(--pastel-pink);
-  --color-pastel-green: var(--pastel-green);
-  --color-pastel-yellow: var(--pastel-yellow);
   
   --font-sans: var(--font-chilpan), "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
-  
-  --shadow-brutal: 4px 4px 0px 0px rgba(0,0,0,1);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+  position: relative;
+  transition: background-color 0.5s ease;
 }
 
-/* Custom Utility for Brutalism Border */
+/* Subtle paper texture */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('/textures/paper-texture.png');
+  background-repeat: repeat;
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Bento Box Utilities */
 @layer utilities {
-  .brutal-border {
-    border: 2px solid #000;
-    box-shadow: var(--shadow-brutal);
+  /* Main Bento Card */
+  .bento-card {
+    background: var(--card-bg);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--border-radius-bento);
+    box-shadow: var(--shadow-bento);
+  }
+  
+  .bento-card-sm {
+    background: var(--card-bg);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--border-radius-bento);
+    box-shadow: var(--shadow-bento-sm);
+  }
+  
+  /* Character glow effect */
+  .character-glow {
+    position: relative;
+  }
+  
+  .character-glow::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 85%;
+    height: 85%;
+    background: radial-gradient(circle, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 70%);
+    border-radius: 50%;
+    z-index: 0;
+  }
+  
+  /* Highlighter effects */
+  .highlighter-yellow {
+    background: linear-gradient(180deg, transparent 60%, var(--highlight-yellow) 60%);
+    display: inline;
+    padding: 0 4px;
+  }
+  
+  .highlighter-mint {
+    background: linear-gradient(180deg, transparent 60%, var(--highlight-mint) 60%);
+    display: inline;
+    padding: 0 4px;
+  }
+  
+  /* Typography */
+  .text-extra-bold {
+    font-weight: 900;
+    letter-spacing: -0.05em;
+  }
+  
+  .handwriting {
+    font-family: var(--font-chilpan);
+    font-weight: 300;
+    letter-spacing: 0.02em;
+  }
+  
+  /* Button press interaction */
+  .btn-press {
+    transition: all 0.1s ease;
+  }
+  
+  .btn-press:active {
+    transform: translateY(2px);
+    box-shadow: 4px 4px 0px var(--border-color);
   }
 }
