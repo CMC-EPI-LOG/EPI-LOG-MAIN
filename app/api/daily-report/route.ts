@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-airkorea.vercel.app';
+const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai.vercel.app';
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
 
 function mapProfileToAiSchema(profile: any) {
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
     // Parallel Requests
     const [airResponse, aiResponse] = await Promise.allSettled([
-      fetch(`${DATA_API_URL}/api/stations?stationName=${encodeURIComponent(targetStation)}`, {
+      fetch(`${DATA_API_URL}/api/air-quality?stationName=${encodeURIComponent(targetStation)}`, {
         cache: 'no-store',
       }),
       fetch(`${AI_API_URL}/api/advice`, {
@@ -57,29 +57,41 @@ export async function POST(request: Request) {
     if (airResponse.status === 'fulfilled') {
       if (airResponse.value.ok) {
         const result = await airResponse.value.json();
-        // AirKorea API returns an array, take the first item
-        airData = Array.isArray(result) && result.length > 0 ? result[0] : null;
+        
+        // New EPI-LOG-AI /api/air-quality endpoint returns direct format
+        // { stationName, pm25_grade, pm25_value, pm10_grade, pm10_value, ... }
+        airData = result;
 
-        // Map to our internal structure if needed? 
-        // Our DecisionCard uses: grade, value, stationName.
-        // API returns: realtime.pm10.grade, etc.
-        // We probably need to map/flatten this for easier consumption in frontend or update frontend.
-        // Let's flatten slightly for the frontend to be happy:
-        if (airData && airData.realtime) {
+        // Transform to internal structure for frontend
+        if (airData) {
+           // Convert Korean grade text to numeric for comparison
+           const gradeMap: Record<string, number> = {
+             '좋음': 1,
+             '보통': 2,
+             '나쁨': 3,
+             '매우나쁨': 4
+           };
+           
+           const pm10Grade = gradeMap[airData.pm10_grade] || 2;
+           const pm25Grade = gradeMap[airData.pm25_grade] || 2;
+           const worstGrade = Math.max(pm10Grade, pm25Grade);
+           
            airData = {
              stationName: airData.stationName || targetStation,
-             // Prioritize PM10 or PM2.5 or worst grade?
-             // Let's pick worst grade between PM10 and PM2.5 for generalized 'grade'
-             grade: Math.max(airData.realtime.pm10.grade, airData.realtime.pm25.grade) === 4 ? 'VERY_BAD' :
-                    Math.max(airData.realtime.pm10.grade, airData.realtime.pm25.grade) === 3 ? 'BAD' :
-                    Math.max(airData.realtime.pm10.grade, airData.realtime.pm25.grade) === 2 ? 'NORMAL' : 'GOOD',
-             value: airData.realtime.pm10.value, // Just show PM10 as rep value
-             // Extract numeric values for display
-             pm25_value: airData.realtime.pm25?.value,
-             pm10_value: airData.realtime.pm10?.value,
-             o3_value: airData.realtime.o3?.value,
-             no2_value: airData.realtime.no2?.value,
-             detail: airData.realtime
+             grade: worstGrade === 4 ? 'VERY_BAD' :
+                    worstGrade === 3 ? 'BAD' :
+                    worstGrade === 2 ? 'NORMAL' : 'GOOD',
+             value: airData.pm10_value,
+             pm25_value: airData.pm25_value,
+             pm10_value: airData.pm10_value,
+             o3_value: airData.o3_value,
+             no2_value: airData.no2_value,
+             detail: {
+               pm10: { grade: pm10Grade, value: airData.pm10_value },
+               pm25: { grade: pm25Grade, value: airData.pm25_value },
+               o3: { value: airData.o3_value },
+               no2: { value: airData.no2_value }
+             }
            };
         }
       } else {
