@@ -3,183 +3,347 @@ import { NextResponse } from 'next/server';
 const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai.vercel.app';
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
 
-function mapProfileToAiSchema(profile: any) {
-  // Updated to 5 age groups + atopy condition
-  // Internal Age Groups: 'infant', 'toddler', 'elementary_low', 'elementary_high', 'teen_adult'
-  // AI Age Groups: Same (direct mapping)
-  let aiAge = profile.ageGroup || 'elementary_low'; // Direct pass-through with fallback
-  
-  // Internal Condition: 'none', 'rhinitis', 'asthma', 'atopy'
-  // AI Condition: 'general', 'rhinitis', 'asthma', 'atopy'
-  let aiCondition = 'general'; // Backend uses 'general' for none
+const UNKNOWN_STATION_SIGNATURE = {
+  pm25_value: 65,
+  pm10_value: 85,
+  o3_value: 0.065,
+  no2_value: 0.025,
+};
+
+const STATION_HINTS: Record<string, string[]> = {
+  '성남시 분당구': ['정자동', '수내동', '운중동'],
+  분당구: ['정자동', '수내동', '운중동'],
+  판교동: ['운중동', '정자동'],
+};
+
+interface ProfileInput {
+  ageGroup?: string;
+  condition?: string;
+}
+
+interface AirQualityRaw {
+  stationName?: string;
+  pm25_grade?: string;
+  pm25_value?: number;
+  pm10_grade?: string;
+  pm10_value?: number;
+  o3_grade?: string;
+  o3_value?: number;
+  no2_grade?: string;
+  no2_value?: number;
+  co_grade?: string;
+  co_value?: number;
+  so2_grade?: string;
+  so2_value?: number;
+  temp?: number;
+  humidity?: number;
+}
+
+interface AirQualityView {
+  stationName: string;
+  grade: 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD';
+  value?: number;
+  pm25_value?: number;
+  pm10_value?: number;
+  o3_value?: number;
+  no2_value?: number;
+  co_value?: number;
+  so2_value?: number;
+  temp?: number;
+  humidity?: number;
+  detail: {
+    pm10: { grade: number; value?: number };
+    pm25: { grade: number; value?: number };
+    o3: { value?: number };
+    no2: { value?: number };
+  } | null;
+}
+
+interface AirFetchResult {
+  data: AirQualityRaw | null;
+  resolvedStation: string;
+  triedStations: string[];
+}
+
+interface AiGuideView {
+  summary: string;
+  detail: string;
+  threeReason?: string[];
+  detailAnswer?: string;
+  actionItems?: string[];
+  activityRecommendation?: string;
+  maskRecommendation?: string;
+  references?: string[];
+  pm25_value?: number;
+  o3_value?: number;
+  pm10_value?: number;
+  no2_value?: number;
+}
+
+async function parseRequestBody(request: Request): Promise<Record<string, unknown>> {
+  const raw = await request.text();
+  if (!raw.trim()) return {};
+
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function mapProfileToAiSchema(profile: ProfileInput) {
+  const aiAge = profile.ageGroup || 'elementary_low';
+
+  let aiCondition = 'general';
   if (profile.condition === 'asthma') aiCondition = 'asthma';
   else if (profile.condition === 'rhinitis') aiCondition = 'rhinitis';
   else if (profile.condition === 'atopy') aiCondition = 'atopy';
   else if (profile.condition === 'none') aiCondition = 'general';
-  
+
   return {
     ageGroup: aiAge,
     condition: aiCondition,
   };
 }
 
+function normalizeDongName(name: string) {
+  return name.replace(/^(.+?)\d+동$/, '$1동');
+}
+
+function buildStationCandidates(rawStation: string): string[] {
+  const cleaned = rawStation.trim().replace(/\s+/g, ' ');
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+
+  const add = (value?: string) => {
+    if (!value) return;
+    const normalized = value.trim().replace(/\s+/g, ' ');
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    candidates.push(normalized);
+  };
+
+  add(cleaned);
+  add(cleaned.replace(/\s+/g, ''));
+  add(normalizeDongName(cleaned));
+
+  const tokens = cleaned.split(' ').filter(Boolean);
+  for (const token of tokens) {
+    add(token);
+    add(normalizeDongName(token));
+  }
+
+  if (tokens.length >= 2) {
+    add(tokens[tokens.length - 1]);
+    add(tokens[tokens.length - 2]);
+    add(`${tokens[tokens.length - 2]} ${tokens[tokens.length - 1]}`);
+  }
+
+  const matchedHints = new Set<string>();
+  for (const [key, hints] of Object.entries(STATION_HINTS)) {
+    if (cleaned.includes(key) || tokens.includes(key)) {
+      hints.forEach((hint) => matchedHints.add(hint));
+    }
+  }
+  matchedHints.forEach((hint) => add(hint));
+
+  return candidates;
+}
+
+function isUnknownStationSignature(data: AirQualityRaw | null): boolean {
+  if (!data) return false;
+  return (
+    Number(data.pm25_value) === UNKNOWN_STATION_SIGNATURE.pm25_value &&
+    Number(data.pm10_value) === UNKNOWN_STATION_SIGNATURE.pm10_value &&
+    Math.abs(Number(data.o3_value) - UNKNOWN_STATION_SIGNATURE.o3_value) < 0.000001 &&
+    Math.abs(Number(data.no2_value) - UNKNOWN_STATION_SIGNATURE.no2_value) < 0.000001
+  );
+}
+
+async function fetchAirDataWithStationFallback(stationName: string): Promise<AirFetchResult> {
+  const candidates = buildStationCandidates(stationName);
+  let fallbackResult: { data: AirQualityRaw; resolvedStation: string } | null = null;
+
+  for (const candidate of candidates) {
+    try {
+      const response = await fetch(
+        `${DATA_API_URL}/api/air-quality?stationName=${encodeURIComponent(candidate)}`,
+        { cache: 'no-store' },
+      );
+
+      if (!response.ok) {
+        console.error('[BFF] Air API Failed:', response.status, response.statusText, `candidate=${candidate}`);
+        continue;
+      }
+
+      const parsed = (await response.json()) as AirQualityRaw;
+      if (!fallbackResult) {
+        fallbackResult = { data: parsed, resolvedStation: candidate };
+      }
+
+      if (isUnknownStationSignature(parsed)) {
+        console.warn(`[BFF] Unknown station signature detected for "${candidate}", trying next candidate`);
+        continue;
+      }
+
+      return {
+        data: parsed,
+        resolvedStation: candidate,
+        triedStations: candidates,
+      };
+    } catch (error) {
+      console.error('[BFF] Air API Error:', error, `candidate=${candidate}`);
+    }
+  }
+
+  return {
+    data: fallbackResult?.data || null,
+    resolvedStation: fallbackResult?.resolvedStation || stationName,
+    triedStations: candidates,
+  };
+}
+
+function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQualityView {
+  if (!raw) {
+    return {
+      stationName: fallbackStation,
+      grade: 'NORMAL',
+      detail: null,
+    };
+  }
+
+  const gradeMap: Record<string, number> = {
+    좋음: 1,
+    보통: 2,
+    나쁨: 3,
+    매우나쁨: 4,
+  };
+
+  const pm10Grade = gradeMap[raw.pm10_grade || ''] || 2;
+  const pm25Grade = gradeMap[raw.pm25_grade || ''] || 2;
+  const worstGrade = Math.max(pm10Grade, pm25Grade);
+
+  return {
+    stationName: raw.stationName || fallbackStation,
+    grade: worstGrade === 4 ? 'VERY_BAD' : worstGrade === 3 ? 'BAD' : worstGrade === 2 ? 'NORMAL' : 'GOOD',
+    value: raw.pm10_value,
+    pm25_value: raw.pm25_value,
+    pm10_value: raw.pm10_value,
+    o3_value: raw.o3_value,
+    no2_value: raw.no2_value,
+    co_value: raw.co_value,
+    so2_value: raw.so2_value,
+    temp: raw.temp,
+    humidity: raw.humidity,
+    detail: {
+      pm10: { grade: pm10Grade, value: raw.pm10_value },
+      pm25: { grade: pm25Grade, value: raw.pm25_value },
+      o3: { value: raw.o3_value },
+      no2: { value: raw.no2_value },
+    },
+  };
+}
+
+async function fetchAiData(stationName: string, aiProfile: { ageGroup: string; condition: string }) {
+  const response = await fetch(`${AI_API_URL}/api/advice`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      stationName,
+      userProfile: aiProfile,
+    }),
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    throw new Error(`AI API Failed: ${response.status} ${response.statusText}`);
+  }
+
+  const raw = (await response.json()) as Record<string, unknown>;
+  console.log('[BFF] Raw AI Data:', JSON.stringify(raw, null, 2));
+
+  if (
+    raw.decision === 'Error' ||
+    (typeof raw.reason === 'string' && raw.reason.includes('Error code:'))
+  ) {
+    console.error('[BFF] AI Business Logic Error:', raw.reason);
+    return {
+      summary: 'AI 서버 설정 오류가 발생했어요 😅',
+      detail: '백엔드 OpenAI 모델 설정(Temperature)을 확인해주세요.',
+      maskRecommendation: '확인 필요',
+      activityRecommendation: '확인 필요',
+    } satisfies AiGuideView;
+  }
+
+  return {
+    summary: typeof raw.decision === 'string' ? raw.decision : '오늘의 가이드를 준비 중이에요.',
+    detail: typeof raw.reason === 'string' ? raw.reason : 'AI 설명을 준비 중이에요.',
+    threeReason: Array.isArray(raw.three_reason) ? (raw.three_reason as string[]) : [],
+    detailAnswer: typeof raw.detail_answer === 'string' ? raw.detail_answer : (raw.reason as string | undefined),
+    actionItems: Array.isArray(raw.actionItems) ? (raw.actionItems as string[]) : [],
+    activityRecommendation: typeof raw.decision === 'string' ? raw.decision : '확인 필요',
+    maskRecommendation: 'KF80 권장',
+    references: Array.isArray(raw.references) ? (raw.references as string[]) : [],
+    pm25_value: typeof raw.pm25_value === 'number' ? raw.pm25_value : undefined,
+    o3_value: typeof raw.o3_value === 'number' ? raw.o3_value : undefined,
+    pm10_value: typeof raw.pm10_value === 'number' ? raw.pm10_value : undefined,
+    no2_value: typeof raw.no2_value === 'number' ? raw.no2_value : undefined,
+  } satisfies AiGuideView;
+}
+
 export async function POST(request: Request) {
   try {
-    const { stationName, profile } = await request.json();
+    const requestBody = await parseRequestBody(request);
+    const stationName = typeof requestBody.stationName === 'string' ? requestBody.stationName : undefined;
+    const profile =
+      typeof requestBody.profile === 'object' && requestBody.profile !== null
+        ? (requestBody.profile as ProfileInput)
+        : undefined;
 
-    const targetStation = stationName || '강남구';
-    const finalProfile = profile || { ageGroup: 'child_low', condition: 'normal' };
+    const requestedStation = stationName || '강남구';
+    const finalProfile = profile || { ageGroup: 'elementary_low', condition: 'none' };
     const aiProfile = mapProfileToAiSchema(finalProfile);
 
-    console.log(`[BFF] Fetching for station: ${targetStation}`);
-    console.log(`[BFF] AI Profile Payload:`, aiProfile);
+    console.log(`[BFF] Requested station: ${requestedStation}`);
+    console.log('[BFF] AI Profile Payload:', aiProfile);
 
-    // Parallel Requests
-    const [airResponse, aiResponse] = await Promise.allSettled([
-      fetch(`${DATA_API_URL}/api/air-quality?stationName=${encodeURIComponent(targetStation)}`, {
-        cache: 'no-store',
-      }),
-      fetch(`${AI_API_URL}/api/advice`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          stationName: targetStation,
-          userProfile: aiProfile
-        }),
-        cache: 'no-store',
-      }),
-    ]);
+    const airFetch = await fetchAirDataWithStationFallback(requestedStation);
+    const resolvedStationForAi = airFetch.resolvedStation || requestedStation;
 
-    // Process Air Data
-    let airData = null;
-    if (airResponse.status === 'fulfilled') {
-      if (airResponse.value.ok) {
-        const result = await airResponse.value.json();
-        
-        // New EPI-LOG-AI /api/air-quality endpoint returns direct format
-        // { stationName, pm25_grade, pm25_value, pm10_grade, pm10_value, ... }
-        airData = result;
+    console.log('[BFF] Air station candidates:', airFetch.triedStations.join(' -> '));
+    console.log('[BFF] Resolved station for air/ai:', resolvedStationForAi);
 
-        // Transform to internal structure for frontend
-        if (airData) {
-           // Convert Korean grade text to numeric for comparison
-           const gradeMap: Record<string, number> = {
-             '좋음': 1,
-             '보통': 2,
-             '나쁨': 3,
-             '매우나쁨': 4
-           };
-           
-           const pm10Grade = gradeMap[airData.pm10_grade] || 2;
-           const pm25Grade = gradeMap[airData.pm25_grade] || 2;
-           const worstGrade = Math.max(pm10Grade, pm25Grade);
-           
-           airData = {
-             stationName: airData.stationName || targetStation,
-             grade: worstGrade === 4 ? 'VERY_BAD' :
-                    worstGrade === 3 ? 'BAD' :
-                    worstGrade === 2 ? 'NORMAL' : 'GOOD',
-             value: airData.pm10_value,
-             pm25_value: airData.pm25_value,
-             pm10_value: airData.pm10_value,
-             o3_value: airData.o3_value,
-             no2_value: airData.no2_value,
-             co_value: airData.co_value,
-             so2_value: airData.so2_value,
-             temp: airData.temp,
-             humidity: airData.humidity,
-             detail: {
-               pm10: { grade: pm10Grade, value: airData.pm10_value },
-               pm25: { grade: pm25Grade, value: airData.pm25_value },
-               o3: { value: airData.o3_value },
-               no2: { value: airData.no2_value }
-             }
-           };
-        }
-      } else {
-        console.error('[BFF] Air API Failed:', airResponse.value.status, airResponse.value.statusText);
-      }
-    } else {
-      console.error('[BFF] Air API Error:', airResponse.reason);
+    const airData = toViewAirData(airFetch.data, resolvedStationForAi);
+
+    let aiData: AiGuideView | null = null;
+    try {
+      aiData = await fetchAiData(resolvedStationForAi, aiProfile);
+    } catch (error) {
+      console.error('[BFF] AI API Error:', error);
     }
 
-    // Process AI Data
-    let aiData = null;
-    if (aiResponse.status === 'fulfilled') {
-      if (aiResponse.value.ok) {
-        aiData = await aiResponse.value.json();
-        console.log('[BFF] Raw AI Data:', JSON.stringify(aiData, null, 2));
-        // Transform AI response to expected format if needed
-        // AI returns: { decision: "X", reason: "...", actionItems: [] }
-        if (aiData) {
-            // Check for backend-level error caught and returned as 200
-            if (aiData.decision === 'Error' || (typeof aiData.reason === 'string' && aiData.reason.includes('Error code:'))) {
-                 console.error('[BFF] AI Business Logic Error:', aiData.reason);
-                 aiData = {
-                    summary: "AI 서버 설정 오류가 발생했어요 😅",
-                    detail: "백엔드 OpenAI 모델 설정(Temperature)을 확인해주세요.",
-                    maskRecommendation: "확인 필요",
-                    activityRecommendation: "확인 필요"
-                 };
-            } else {
-                    aiData = {
-                        summary: aiData.decision,
-                        detail: aiData.reason,
-                        actionItems: aiData.actionItems || [],
-                        activityRecommendation: aiData.decision, 
-                        maskRecommendation: 'KF80 권장', // Default/Logic placeholder
-                        references: aiData.references || [] // Now explicitly part of the API
-                    };
-            }
-        }
-      } else {
-        console.error('[BFF] AI API Failed:', aiResponse.value.status, aiResponse.value.statusText);
-      }
-    } else {
-      console.error('[BFF] AI API Error:', aiResponse.reason);
-    }
-
-    // Fallback if AI fails
     if (!aiData) {
       aiData = {
-        summary: "지금은 정보를 가져올 수 없어요 🥲\n잠시 후 다시 시도해주세요!",
-        detail: "AI 선생님이 잠시 쉬고 있어요. 연결을 확인해주세요.",
+        summary: '지금은 정보를 가져올 수 없어요 🥲\n잠시 후 다시 시도해주세요!',
+        detail: 'AI 선생님이 잠시 쉬고 있어요. 연결을 확인해주세요.',
       };
     }
 
-    // Ensure airData has stationName for UI even if API failed
-    if (!airData) {
-      airData = {
-        stationName: targetStation,
-        grade: 'NORMAL', // Fallback to avoid white/broken UI
-        detail: null
-      };
-    } else if (!airData.stationName) {
-      airData.stationName = targetStation;
-    }
-
-    // Merge numeric values from AI API response into airData if not present
-    // This ensures we always have pm25_value, o3_value etc even if AirKorea API fails
-    if (aiData) {
-      if (!airData.pm25_value && aiData.pm25_value) airData.pm25_value = aiData.pm25_value;
-      if (!airData.o3_value && aiData.o3_value) airData.o3_value = aiData.o3_value;
-      if (!airData.pm10_value && aiData.pm10_value) airData.pm10_value = aiData.pm10_value;
-      if (!airData.no2_value && aiData.no2_value) airData.no2_value = aiData.no2_value;
-    }
+    // Ensure we still keep numeric metrics if AI payload includes them and air data is missing.
+    if (airData.pm25_value == null && aiData.pm25_value != null) airData.pm25_value = aiData.pm25_value;
+    if (airData.o3_value == null && aiData.o3_value != null) airData.o3_value = aiData.o3_value;
+    if (airData.pm10_value == null && aiData.pm10_value != null) airData.pm10_value = aiData.pm10_value;
+    if (airData.no2_value == null && aiData.no2_value != null) airData.no2_value = aiData.no2_value;
 
     return NextResponse.json({
       airQuality: airData,
       aiGuide: aiData,
       timestamp: new Date().toISOString(),
     });
-
   } catch (error) {
     console.error('[BFF] Internal Server Error:', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

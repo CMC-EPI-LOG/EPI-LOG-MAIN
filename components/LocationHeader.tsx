@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { MapPin, Search } from 'lucide-react';
+import { useState } from 'react';
+import { MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
@@ -13,57 +13,40 @@ interface LocationHeaderProps {
   onLocationSelect: (address: string, stationName: string) => void;
 }
 
+interface DaumPostcodeData {
+  address: string;
+  bname: string;
+  sigungu: string;
+}
+
 export default function LocationHeader({ currentLocation, onLocationSelect }: LocationHeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
+  const portalRoot = typeof document !== 'undefined' ? document.body : null;
 
-  useEffect(() => {
-    if (typeof document !== 'undefined') {
-      setPortalRoot(document.body);
-    }
-  }, []);
+  const handleComplete = (data: DaumPostcodeData) => {
+    const displayAddress = data.bname || data.sigungu || data.address;
+    const stationQuery = [data.sigungu, data.bname].filter(Boolean).join(' ').trim();
 
-  const handleComplete = (data: any) => {
-    // data.bname -> '역삼동' (Legal Dong)
-    // data.sigungu -> '강남구'
-    // We want to use 'bname' (Dong) for display and 'sigungu' (Gu) for station matching if possible.
-    
-    let fullAddress = data.address;
-    let extraAddress = '';
-
-    if (data.addressType === 'R') {
-      if (data.bname !== '') {
-        extraAddress += data.bname;
-      }
-      if (data.buildingName !== '') {
-        extraAddress += (extraAddress !== '' ? `, ${data.buildingName}` : data.buildingName);
-      }
-      fullAddress += (extraAddress !== '' ? ` (${extraAddress})` : '');
-    }
-    
-    // We prefer 'sigungu' for station mapping usually, and 'bname' for display.
-    // If 'sigungu' is empty (rare), fallback to bname.
-    // Let's pass: Display: bname, Station: sigungu
-    
-    onLocationSelect(data.bname || data.sigungu, data.sigungu || data.bname);
+    onLocationSelect(displayAddress, stationQuery || displayAddress);
     setIsSearchOpen(false);
   };
 
   return (
     <>
       <div className="flex items-center gap-2">
-        <div 
-          className="flex items-center gap-1 cursor-pointer hover:opacity-70 transition-opacity" 
-          onClick={() => {
-            console.log('Location Clicked!');
-            setIsSearchOpen(true);
-          }}
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded-md px-1 py-0.5 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/70"
+          onClick={() => setIsSearchOpen(true)}
+          aria-label="위치 검색 열기"
+          aria-haspopup="dialog"
+          data-testid="location-trigger"
         >
           <MapPin size={20} className="text-black fill-black/10" />
           <span className="text-xl font-black underline decoration-4 decoration-pastel-yellow underline-offset-4">
             {currentLocation}
           </span>
-        </div>
+        </button>
       </div>
 
       {portalRoot &&
@@ -77,12 +60,18 @@ export default function LocationHeader({ currentLocation, onLocationSelect }: Lo
                    animate={{ opacity: 1, scale: 1 }}
                    exit={{ opacity: 0, scale: 0.9 }}
                    className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden border-2 border-black relative"
+                   role="dialog"
+                   aria-modal="true"
+                   aria-label="우리 동네 찾기"
+                   data-testid="location-modal"
                  >
                    <div className="p-4 flex justify-between items-center bg-pastel-blue border-b-2 border-black">
                      <h3 className="font-black text-lg">📍 우리 동네 찾기</h3>
                      <button 
                        onClick={() => setIsSearchOpen(false)}
                        className="font-bold text-2xl leading-none hover:text-red-500"
+                       aria-label="위치 검색 닫기"
+                       data-testid="location-close"
                      >
                        &times;
                      </button>

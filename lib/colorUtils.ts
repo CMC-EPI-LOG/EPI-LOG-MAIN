@@ -5,37 +5,39 @@
 
 export type AirQualityGrade = 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD';
 
+const GRADE_BG_COLORS: Record<string, string> = {
+  GOOD: '#E6F4F1',
+  NORMAL: '#FFF9E5',
+  BAD: '#FFEDE0',
+  VERY_BAD: '#FFE9E9',
+};
+
+const GRADE_BADGE_COLORS: Record<string, string> = {
+  GOOD: 'bg-green-400',
+  NORMAL: 'bg-yellow-400',
+  BAD: 'bg-orange-400',
+  VERY_BAD: 'bg-red-400',
+};
+
 /**
  * Get background color for entire page based on air quality grade
  */
 export function getBackgroundColor(grade: AirQualityGrade | string): string {
-  const colors: Record<string, string> = {
-    GOOD: '#E6F4F1',      // Mint
-    NORMAL: '#FFF9E5',    // Lemon
-    BAD: '#FFEDE0',       // Peach
-    VERY_BAD: '#FCE8F3'   // Pink
-  };
-  return colors[grade] || '#F5F5F5'; // Default gray-beige
+  return GRADE_BG_COLORS[grade] || '#F5F5F5';
 }
 
 /**
- * Get status color for action recommendations
+ * Keep recommendation text readable while maintaining red/green semantics.
  */
 export function getStatusColor(isPositive: boolean): string {
-  return isPositive ? 'text-green-600' : 'text-red-600';
+  return isPositive ? 'text-green-700' : 'text-red-700';
 }
 
 /**
  * Get grade badge color
  */
 export function getGradeBadgeColor(grade: AirQualityGrade | string): string {
-  const colors: Record<string, string> = {
-    GOOD: 'bg-green-400',
-    NORMAL: 'bg-yellow-400',
-    BAD: 'bg-orange-400',
-    VERY_BAD: 'bg-pink-400'
-  };
-  return colors[grade] || 'bg-gray-400';
+  return GRADE_BADGE_COLORS[grade] || 'bg-gray-400';
 }
 
 /**
