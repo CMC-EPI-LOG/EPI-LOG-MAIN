@@ -40,6 +40,16 @@ interface DailyReportData {
     maskRecommendation?: string;
     activityRecommendation?: string;
   };
+  reliability?: {
+    status?: "LIVE" | "STATION_FALLBACK" | "DEGRADED";
+    label?: string;
+    description?: string;
+    requestedStation?: string;
+    resolvedStation?: string;
+    triedStations?: string[];
+    updatedAt?: string;
+    aiStatus?: "ok" | "failed";
+  };
 }
 
 export default function Home() {
@@ -257,6 +267,12 @@ export default function Home() {
     : isProfileRefreshing
       ? "선택한 연령/질환 기준으로 맞춤 가이드를 다시 계산 중"
       : undefined;
+  const reliabilityUpdatedAt = data?.reliability?.updatedAt
+    ? new Date(data.reliability.updatedAt).toLocaleTimeString("ko-KR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : undefined;
 
   return (
     <main 
@@ -342,6 +358,9 @@ export default function Home() {
           threeReason={data?.aiGuide?.threeReason}
           detailAnswer={data?.aiGuide?.detailAnswer}
           reasoning={data?.aiGuide?.detail}  // Fallback for backward compatibility
+          reliabilityLabel={data?.reliability?.label}
+          reliabilityDescription={data?.reliability?.description}
+          reliabilityUpdatedAt={reliabilityUpdatedAt}
           delay={1.0}
         />
 
@@ -356,6 +375,9 @@ export default function Home() {
               humidity: data.airQuality.humidity || 0,
               no2: data.airQuality.no2_value || 0,
             }}
+            reliabilityLabel={data?.reliability?.label}
+            reliabilityDescription={data?.reliability?.description}
+            reliabilityUpdatedAt={reliabilityUpdatedAt}
             delay={1.1}
           />
         )}

@@ -13,6 +13,9 @@ interface DataGridProps {
     humidity: number;
     no2: number;
   };
+  reliabilityLabel?: string;
+  reliabilityDescription?: string;
+  reliabilityUpdatedAt?: string;
   delay?: number;
 }
 
@@ -137,7 +140,13 @@ function PollutionCard({ label, value, unit, max, status, Icon }: PollutionCardP
   );
 }
 
-export default function DataGrid({ data, delay = 0 }: DataGridProps) {
+export default function DataGrid({
+  data,
+  reliabilityLabel,
+  reliabilityDescription,
+  reliabilityUpdatedAt,
+  delay = 0,
+}: DataGridProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -175,6 +184,17 @@ export default function DataGrid({ data, delay = 0 }: DataGridProps) {
         className="overflow-hidden"
       >
         <div className="space-y-6 border-t border-gray-100 px-5 pb-5 pt-4 md:px-6 md:pb-6">
+          {reliabilityLabel && (
+            <div
+              className="inline-flex flex-wrap items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-[11px] font-semibold text-gray-600"
+              title={reliabilityDescription}
+              data-testid="datagrid-reliability-badge"
+            >
+              <span>{reliabilityLabel}</span>
+              {reliabilityUpdatedAt && <span>· {reliabilityUpdatedAt} 기준</span>}
+            </div>
+          )}
+
           <section className="space-y-3">
             <p className="section-label">[날씨]</p>
             <WeatherWidget temp={data.temperature} humidity={data.humidity} />

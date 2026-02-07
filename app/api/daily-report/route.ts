@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { buildReliabilityMeta, deriveDecisionSignals } from '@/lib/dailyReportDecision';
 
 const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai.vercel.app';
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
@@ -63,6 +64,9 @@ interface AirFetchResult {
   data: AirQualityRaw | null;
   resolvedStation: string;
   triedStations: string[];
+  usedFallbackCandidate: boolean;
+  usedFallbackData: boolean;
+  unknownSignatureCandidates: string[];
 }
 
 interface AiGuideView {
@@ -79,6 +83,7 @@ interface AiGuideView {
   pm10_value?: number;
   no2_value?: number;
 }
+
 
 async function parseRequestBody(request: Request): Promise<Record<string, unknown>> {
   const raw = await request.text();
@@ -163,6 +168,7 @@ function isUnknownStationSignature(data: AirQualityRaw | null): boolean {
 async function fetchAirDataWithStationFallback(stationName: string): Promise<AirFetchResult> {
   const candidates = buildStationCandidates(stationName);
   let fallbackResult: { data: AirQualityRaw; resolvedStation: string } | null = null;
+  const unknownSignatureCandidates: string[] = [];
 
   for (const candidate of candidates) {
     try {
@@ -182,6 +188,7 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
       }
 
       if (isUnknownStationSignature(parsed)) {
+        unknownSignatureCandidates.push(candidate);
         console.warn(`[BFF] Unknown station signature detected for "${candidate}", trying next candidate`);
         continue;
       }
@@ -190,6 +197,9 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
         data: parsed,
         resolvedStation: candidate,
         triedStations: candidates,
+        usedFallbackCandidate: candidate !== candidates[0],
+        usedFallbackData: false,
+        unknownSignatureCandidates,
       };
     } catch (error) {
       console.error('[BFF] Air API Error:', error, `candidate=${candidate}`);
@@ -200,6 +210,9 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
     data: fallbackResult?.data || null,
     resolvedStation: fallbackResult?.resolvedStation || stationName,
     triedStations: candidates,
+    usedFallbackCandidate: Boolean(fallbackResult && fallbackResult.resolvedStation !== candidates[0]),
+    usedFallbackData: Boolean(fallbackResult),
+    unknownSignatureCandidates,
   };
 }
 
@@ -309,19 +322,43 @@ export async function POST(request: Request) {
     console.log(`[BFF] Requested station: ${requestedStation}`);
     console.log('[BFF] AI Profile Payload:', aiProfile);
 
-    const airFetch = await fetchAirDataWithStationFallback(requestedStation);
-    const resolvedStationForAi = airFetch.resolvedStation || requestedStation;
+    // P0: 병렬 호출로 지연 완화 (air/ai를 동시에 시작)
+    const [airSettled, aiSettled] = await Promise.allSettled([
+      fetchAirDataWithStationFallback(requestedStation),
+      fetchAiData(requestedStation, aiProfile),
+    ]);
+
+    const airFetch: AirFetchResult =
+      airSettled.status === 'fulfilled'
+        ? airSettled.value
+        : {
+            data: null,
+            resolvedStation: requestedStation,
+            triedStations: [requestedStation],
+            usedFallbackCandidate: false,
+            usedFallbackData: false,
+            unknownSignatureCandidates: [],
+          };
+
+    if (airSettled.status !== 'fulfilled') {
+      console.error('[BFF] Air fetch failed:', airSettled.reason);
+    }
 
     console.log('[BFF] Air station candidates:', airFetch.triedStations.join(' -> '));
-    console.log('[BFF] Resolved station for air/ai:', resolvedStationForAi);
+    console.log('[BFF] Resolved station for air/ai:', airFetch.resolvedStation);
 
-    const airData = toViewAirData(airFetch.data, resolvedStationForAi);
+    let aiData: AiGuideView | null = aiSettled.status === 'fulfilled' ? aiSettled.value : null;
+    if (aiSettled.status !== 'fulfilled') {
+      console.error('[BFF] AI API Error(primary):', aiSettled.reason);
+    }
 
-    let aiData: AiGuideView | null = null;
-    try {
-      aiData = await fetchAiData(resolvedStationForAi, aiProfile);
-    } catch (error) {
-      console.error('[BFF] AI API Error:', error);
+    // Primary AI 실패 시에만 resolved station으로 1회 재시도
+    if (!aiData && airFetch.resolvedStation !== requestedStation) {
+      try {
+        aiData = await fetchAiData(airFetch.resolvedStation, aiProfile);
+      } catch (error) {
+        console.error('[BFF] AI API Error(retry with resolved station):', error);
+      }
     }
 
     if (!aiData) {
@@ -331,15 +368,22 @@ export async function POST(request: Request) {
       };
     }
 
-    // Ensure we still keep numeric metrics if AI payload includes them and air data is missing.
+    const airData = toViewAirData(airFetch.data, airFetch.resolvedStation);
+
+    // Air 값이 없을 때 AI 숫자 데이터를 보강으로 사용
     if (airData.pm25_value == null && aiData.pm25_value != null) airData.pm25_value = aiData.pm25_value;
     if (airData.o3_value == null && aiData.o3_value != null) airData.o3_value = aiData.o3_value;
     if (airData.pm10_value == null && aiData.pm10_value != null) airData.pm10_value = aiData.pm10_value;
     if (airData.no2_value == null && aiData.no2_value != null) airData.no2_value = aiData.no2_value;
 
+    const derived = deriveDecisionSignals(airData, aiData, finalProfile);
+    const reliability = buildReliabilityMeta(requestedStation, airFetch, aiSettled.status === 'fulfilled');
+
     return NextResponse.json({
-      airQuality: airData,
-      aiGuide: aiData,
+      airQuality: derived.airData,
+      aiGuide: derived.aiGuide,
+      decisionSignals: derived.decisionSignals,
+      reliability,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

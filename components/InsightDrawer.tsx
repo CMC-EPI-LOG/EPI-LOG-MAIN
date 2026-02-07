@@ -9,6 +9,9 @@ interface InsightDrawerProps {
   threeReason?: string[];
   detailAnswer?: string;
   reasoning?: string;
+  reliabilityLabel?: string;
+  reliabilityDescription?: string;
+  reliabilityUpdatedAt?: string;
   delay?: number;
 }
 
@@ -16,6 +19,9 @@ export default function InsightDrawer({
   threeReason,
   detailAnswer,
   reasoning,
+  reliabilityLabel,
+  reliabilityDescription,
+  reliabilityUpdatedAt,
   delay = 0,
 }: InsightDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -56,6 +62,17 @@ export default function InsightDrawer({
         className="overflow-hidden"
       >
         <div className="space-y-4 border-t border-gray-100 px-5 pb-5 pt-4 md:px-6 md:pb-6">
+          {reliabilityLabel && (
+            <div
+              className="inline-flex flex-wrap items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-[11px] font-semibold text-gray-600"
+              title={reliabilityDescription}
+              data-testid="insight-reliability-badge"
+            >
+              <span>{reliabilityLabel}</span>
+              {reliabilityUpdatedAt && <span>· {reliabilityUpdatedAt} 기준</span>}
+            </div>
+          )}
+
           {hasSummary && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
