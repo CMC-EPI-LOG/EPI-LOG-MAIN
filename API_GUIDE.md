@@ -92,8 +92,8 @@ Aggregates air data + AI guidance, applies decision normalization, and returns r
   },
   "reliability": {
     "status": "LIVE",
-    "label": "실시간 측정소 데이터",
-    "description": "현재 선택한 지역 기준의 최신 측정값을 반영했어요.",
+    "label": "최근 1시간 기준 실측 데이터",
+    "description": "현재 선택한 지역 측정소의 최근 1시간 기준 실측값을 반영했어요.",
     "requestedStation": "강남구",
     "resolvedStation": "강남구",
     "triedStations": ["강남구"],
@@ -110,6 +110,10 @@ Aggregates air data + AI guidance, applies decision normalization, and returns r
 - O3 rule: when `BAD+`, action list force-appends `오후 2~5시 외출 금지`.
 - Infant rule: mask recommendation is overridden to `마스크 착용 금지(영아)`.
 - Weather adjustment: risk can be raised by temperature/humidity + profile condition.
+- Reliability label policy:
+  - `LIVE`: `최근 1시간 기준 실측 데이터`
+  - `STATION_FALLBACK`: `인근 측정소 자동 보정`
+  - `DEGRADED`: `주변 평균 대체 데이터`
 
 #### External calls
 - `GET ${NEXT_PUBLIC_DATA_API_URL}/api/air-quality?stationName=...`

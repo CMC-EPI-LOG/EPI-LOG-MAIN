@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 import { buildReliabilityMeta, deriveDecisionSignals } from '@/lib/dailyReportDecision';
 
 const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai.vercel.app';
@@ -207,8 +208,9 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
       }
 
       const parsed = (await response.json()) as AirQualityRaw;
+      const resolvedStationName = parsed.stationName || candidate;
       if (!fallbackResult) {
-        fallbackResult = { data: parsed, resolvedStation: candidate };
+        fallbackResult = { data: parsed, resolvedStation: resolvedStationName };
       }
 
       if (isUnknownStationSignature(parsed)) {
@@ -219,9 +221,10 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
 
       return {
         data: parsed,
-        resolvedStation: candidate,
+        resolvedStation: resolvedStationName,
         triedStations: candidates,
-        usedFallbackCandidate: candidate !== candidates[0],
+        usedFallbackCandidate:
+          candidate !== candidates[0] || resolvedStationName !== candidates[0],
         usedFallbackData: false,
         unknownSignatureCandidates,
       };
@@ -349,6 +352,12 @@ export async function POST(request: Request) {
     const finalProfile = profile || { ageGroup: 'elementary_low', condition: 'none' };
     const aiProfile = mapProfileToAiSchema(finalProfile);
 
+    Sentry.setTag('station.requested', requestedStation);
+    Sentry.setContext('profile', {
+      ageGroup: finalProfile.ageGroup || 'elementary_low',
+      condition: finalProfile.condition || 'none',
+    });
+
     console.log(`[BFF] Requested station: ${requestedStation}`);
     console.log('[BFF] AI Profile Payload:', aiProfile);
 
@@ -372,6 +381,15 @@ export async function POST(request: Request) {
 
     if (airSettled.status !== 'fulfilled') {
       console.error('[BFF] Air fetch failed:', airSettled.reason);
+      Sentry.withScope((scope) => {
+        scope.setTag('fetch.phase', 'air');
+        scope.setTag('station.requested', requestedStation);
+        scope.setLevel('error');
+        scope.setExtra('reason', String(airSettled.reason));
+        Sentry.captureException(
+          airSettled.reason instanceof Error ? airSettled.reason : new Error(String(airSettled.reason)),
+        );
+      });
     }
 
     console.log('[BFF] Air station candidates:', airFetch.triedStations.join(' -> '));
@@ -381,6 +399,15 @@ export async function POST(request: Request) {
     let aiOk = aiSettled.status === 'fulfilled';
     if (aiSettled.status !== 'fulfilled') {
       console.error('[BFF] AI API Error(primary):', aiSettled.reason);
+      Sentry.withScope((scope) => {
+        scope.setTag('fetch.phase', 'ai_primary');
+        scope.setTag('station.requested', requestedStation);
+        scope.setLevel('error');
+        scope.setExtra('reason', String(aiSettled.reason));
+        Sentry.captureException(
+          aiSettled.reason instanceof Error ? aiSettled.reason : new Error(String(aiSettled.reason)),
+        );
+      });
     }
 
     // 측정소 보정이 일어났다면 AI도 동일 측정소 기준으로 맞춰 일관성 확보
@@ -425,6 +452,10 @@ export async function POST(request: Request) {
     const derived = deriveDecisionSignals(airData, aiData, finalProfile);
     const reliability = buildReliabilityMeta(requestedStation, airFetch, aiOk);
 
+    Sentry.setTag('station.resolved', reliability.resolvedStation);
+    Sentry.setTag('reliability.status', reliability.status);
+    Sentry.setTag('ai.status', reliability.aiStatus);
+
     return NextResponse.json({
       airQuality: derived.airData,
       aiGuide: derived.aiGuide,
@@ -434,6 +465,11 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error('[BFF] Internal Server Error:', error);
+    Sentry.withScope((scope) => {
+      scope.setTag('api.route', '/api/daily-report');
+      scope.setLevel('error');
+      Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+    });
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

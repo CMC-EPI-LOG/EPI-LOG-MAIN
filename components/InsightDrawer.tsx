@@ -45,7 +45,7 @@ export default function InsightDrawer({
       <button
         onClick={() => {
           if (!isOpen) {
-            trackCoreEvent('insight_opened', { section: 'insight_drawer' });
+            trackCoreEvent('insight_opened', { ui_section: 'insight_drawer' });
           }
           setIsOpen(!isOpen);
         }}

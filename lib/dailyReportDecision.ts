@@ -250,8 +250,8 @@ export function buildReliabilityMeta(
   if (airFetch.usedFallbackData || !airFetch.data) {
     return {
       status: 'DEGRADED',
-      label: '대체 데이터 사용 중',
-      description: '가까운 측정소 데이터를 우선 매칭하지 못해 대체 측정값으로 안내하고 있어요.',
+      label: '주변 평균 대체 데이터',
+      description: '실측 매칭에 실패해 주변 평균 대체 데이터를 안내하고 있어요.',
       requestedStation,
       resolvedStation: airFetch.resolvedStation,
       triedStations: airFetch.triedStations,
@@ -263,8 +263,8 @@ export function buildReliabilityMeta(
   if (airFetch.usedFallbackCandidate) {
     return {
       status: 'STATION_FALLBACK',
-      label: '측정소 자동 보정',
-      description: '입력한 주소와 가장 가까운 유효 측정소로 자동 보정했어요.',
+      label: '인근 측정소 자동 보정',
+      description: '입력 주소와 인접한 유효 측정소의 최근 1시간 기준 실측값으로 자동 보정했어요.',
       requestedStation,
       resolvedStation: airFetch.resolvedStation,
       triedStations: airFetch.triedStations,
@@ -275,8 +275,8 @@ export function buildReliabilityMeta(
 
   return {
     status: 'LIVE',
-    label: '실시간 측정소 데이터',
-    description: '현재 선택한 지역 기준의 최신 측정값을 반영했어요.',
+    label: '최근 1시간 기준 실측 데이터',
+    description: '현재 선택한 지역 측정소의 최근 1시간 기준 실측값을 반영했어요.',
     requestedStation,
     resolvedStation: airFetch.resolvedStation,
     triedStations: airFetch.triedStations,

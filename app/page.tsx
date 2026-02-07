@@ -12,10 +12,11 @@ import LocationHeader from "@/components/LocationHeader";
 import ShareButton from "@/components/ShareButton";
 import ActionChecklistCard from "@/components/ActionChecklistCard";
 import { Activity, Loader2, Settings, Shield } from "lucide-react";
+import * as Sentry from "@sentry/nextjs";
 import toast from "react-hot-toast";
 import { getCharacterPath } from "@/lib/characterUtils";
 import { getBackgroundColor } from "@/lib/colorUtils";
-import { trackCoreEvent } from "@/lib/analytics/ga";
+import { setCoreEventContext, trackCoreEvent } from "@/lib/analytics/ga";
 
 const REPORT_TIMEOUT_MS = 25000;
 
@@ -307,6 +308,28 @@ export default function Home() {
     : undefined;
   const measurementDataTime = data?.airQuality?.dataTime ?? undefined;
 
+  useEffect(() => {
+    setCoreEventContext({
+      station_name: data?.airQuality?.stationName || location.stationName,
+      reliability_status: data?.reliability?.status || "unknown",
+      age_group: profile?.ageGroup,
+      condition: profile?.condition,
+    });
+
+    Sentry.setTag("station", data?.airQuality?.stationName || location.stationName);
+    Sentry.setTag("reliability", data?.reliability?.status || "unknown");
+    Sentry.setContext("profile", {
+      ageGroup: profile?.ageGroup,
+      condition: profile?.condition,
+    });
+  }, [
+    data?.airQuality?.stationName,
+    data?.reliability?.status,
+    location.stationName,
+    profile?.ageGroup,
+    profile?.condition,
+  ]);
+
   return (
     <main 
       className="min-h-screen p-3 md:p-4 transition-colors duration-500"
@@ -360,7 +383,7 @@ export default function Home() {
           errorTitle={heroErrorTitle}
           errorMessage={heroErrorMessage}
           onRetry={() => {
-            trackCoreEvent("retry_clicked", { source: "hero_error" });
+            trackCoreEvent("retry_clicked", { trigger_source: "hero_error" });
             fetchData(location, profile, "retry");
           }}
         />
@@ -378,6 +401,7 @@ export default function Home() {
           label="마스크"
           statusText={data?.aiGuide?.maskRecommendation || "확인 중..."}
           isPositive={data?.aiGuide?.maskRecommendation?.includes("필요 없어요") || false}
+          fixedBadgeText={profile?.ageGroup === "infant" ? "영아 마스크 금지" : undefined}
           delay={0.8}
         />
         

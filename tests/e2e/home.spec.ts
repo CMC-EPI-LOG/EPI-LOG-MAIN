@@ -36,8 +36,8 @@ const mockReport = {
   },
   reliability: {
     status: 'LIVE',
-    label: '실시간 측정소 데이터',
-    description: '현재 선택한 지역 기준의 최신 측정값을 반영했어요.',
+    label: '최근 1시간 기준 실측 데이터',
+    description: '현재 선택한 지역 측정소의 최근 1시간 기준 실측값을 반영했어요.',
     requestedStation: '중구',
     resolvedStation: '중구',
     triedStations: ['중구'],
@@ -203,10 +203,47 @@ test('근거/수치 섹션에 데이터 신뢰성 배지가 표시된다', async
   await page.goto('/');
 
   await page.getByTestId('insight-toggle').click();
-  await expect(page.getByTestId('insight-reliability-badge')).toContainText('실시간 측정소 데이터');
+  await expect(page.getByTestId('insight-reliability-badge')).toContainText('최근 1시간 기준 실측 데이터');
 
   await page.getByTestId('datagrid-toggle').click();
-  await expect(page.getByTestId('datagrid-reliability-badge')).toContainText('실시간 측정소 데이터');
+  await expect(page.getByTestId('datagrid-reliability-badge')).toContainText('최근 1시간 기준 실측 데이터');
+});
+
+test('fallback 신뢰성 배지 카피 스냅샷이 유지된다', async ({ page }) => {
+  await page.unroute('**/api/daily-report');
+  await page.route('**/api/daily-report', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...mockReport,
+        reliability: {
+          status: 'STATION_FALLBACK',
+          label: '인근 측정소 자동 보정',
+          description: '입력 주소와 인접한 유효 측정소의 최근 1시간 기준 실측값으로 자동 보정했어요.',
+          requestedStation: '판교동',
+          resolvedStation: '정자동',
+          triedStations: ['판교동', '분당구', '정자동'],
+          aiStatus: 'ok',
+        },
+      }),
+    });
+  });
+
+  await page.goto('/');
+
+  await page.getByTestId('insight-toggle').click();
+  await page.getByTestId('datagrid-toggle').click();
+
+  const insightBadgeText = (await page.getByTestId('insight-reliability-badge').innerText())
+    .replace(/\s+/g, ' ')
+    .trim();
+  const datagridBadgeText = (await page.getByTestId('datagrid-reliability-badge').innerText())
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  expect(insightBadgeText).toBe('인근 측정소 자동 보정');
+  expect(datagridBadgeText).toBe('인근 측정소 자동 보정');
 });
 
 test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반영된다', async ({ page }) => {
@@ -291,6 +328,7 @@ test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반
 });
 
 test('요청 타임아웃 후 재시도로 복구된다', async ({ page }) => {
+  test.setTimeout(70_000);
   let attempts = 0;
   await page.unroute('**/api/daily-report');
   await page.route('**/api/daily-report', async (route) => {
@@ -323,4 +361,16 @@ test('요청 타임아웃 후 재시도로 복구된다', async ({ page }) => {
   await page.getByRole('button', { name: '다시 시도' }).click();
 
   await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible();
+});
+
+test('영아 프로필에서는 마스크 카드에 고정 배지가 표시된다', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('영아 마스크 금지')).toHaveCount(0);
+
+  await page.getByTestId('settings-button').click();
+  await page.getByRole('button', { name: /영아/ }).click();
+  await page.getByRole('button', { name: /비염/ }).click();
+  await page.getByTestId('onboarding-submit').click();
+
+  await expect(page.getByText('영아 마스크 금지')).toBeVisible();
 });

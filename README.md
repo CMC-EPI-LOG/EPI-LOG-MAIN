@@ -52,7 +52,7 @@ sequenceDiagram
   C->>S: 위치 업데이트 (stationName=구)
   C->>B: POST /api/daily-report (stationName, profile)
   par AirKorea
-    B->>A: GET /api/stations?stationName=...
+    B->>A: GET /api/air-quality?stationName=...
     A-->>B: 대기질 데이터
   and AI
     B->>AI: POST /api/advice (stationName, userProfile)
@@ -96,6 +96,10 @@ sequenceDiagram
    - iOS/Android 설치 프롬프트 제공
 7. 분석/로그
    - GA4 페이지뷰 자동 수집 (URL path/query 포함)
+   - 핵심 퍼널 이벤트 수집: `location_changed`, `profile_changed`, `insight_opened`, `datagrid_opened`, `share_clicked`, `retry_clicked`
+   - UTM(`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`) 저장/전파
+   - 이벤트 공통 파라미터 표준화: `station_name`, `reliability_status`, `age_group`, `condition`
+   - Sentry 태그 연동: `station`, `reliability`, `profile`
 
 ## API 명세 (Backend Endpoints)
 
@@ -144,7 +148,7 @@ sequenceDiagram
   },
   "reliability": {
     "status": "LIVE",
-    "label": "실시간 측정소 데이터",
+    "label": "최근 1시간 기준 실측 데이터",
     "resolvedStation": "강남구"
   },
   "timestamp": "2026-01-28T12:34:56.789Z"
@@ -157,6 +161,11 @@ sequenceDiagram
 - Air/AI를 병렬 호출(`Promise.allSettled`)하고 부분 실패 시에도 degraded 응답으로 UI를 보호합니다.
 - O3 규칙(2~5시), 영아 마스크 금지, 온습도 보정 신호(`decisionSignals`)를 포함합니다.
 - 데이터 신뢰성 메타(`reliability`)를 함께 반환합니다.
+
+**신뢰성 배지 스펙**
+- `LIVE`: 라벨 `최근 1시간 기준 실측 데이터`
+- `STATION_FALLBACK`: 라벨 `인근 측정소 자동 보정` (인접 유효 측정소로 보정)
+- `DEGRADED`: 라벨 `주변 평균 대체 데이터` (실측 매칭 실패 시 대체값 사용)
 
 **에러 처리**
 - 내부 오류 시 `500`

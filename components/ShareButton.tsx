@@ -13,8 +13,8 @@ interface ShareButtonProps {
 export default function ShareButton({ nickname, region, action }: ShareButtonProps) {
   const handleShare = async () => {
     trackCoreEvent('share_clicked', {
-      region: region || 'unknown',
-      action: action || 'unknown',
+      station_name: region || 'unknown',
+      recommended_action: action || 'unknown',
     });
 
     const shareData = {

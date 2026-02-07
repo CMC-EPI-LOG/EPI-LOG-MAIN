@@ -164,7 +164,7 @@ export default function DataGrid({
       <button
         onClick={() => {
           if (!isOpen) {
-            trackCoreEvent('datagrid_opened', { section: 'realtime_widget' });
+            trackCoreEvent('datagrid_opened', { ui_section: 'realtime_widget' });
           }
           setIsOpen(!isOpen);
         }}

@@ -55,6 +55,17 @@ describe('deriveDecisionSignals', () => {
     expect(result.aiGuide.summary).toContain('오후 2~5시');
   });
 
+  it('오존 위험 시간대(14~17시)가 아니면 요약 문구를 강제 변경하지 않는다', () => {
+    const air = createAir({ o3_value: 0.12, pm25_value: 18 });
+    const guide = createGuide({ summary: '기본 요약 유지' });
+    const profile: ProfileInput = { ageGroup: 'elementary_low', condition: 'none' };
+
+    const result = deriveDecisionSignals(air, guide, profile, 11);
+
+    expect(result.decisionSignals.o3OutingBanForced).toBe(true);
+    expect(result.aiGuide.summary).toBe('기본 요약 유지');
+  });
+
   it('영아 프로필이면 마스크 금지 정책을 반영한다', () => {
     const air = createAir();
     const guide = createGuide();
@@ -100,7 +111,7 @@ describe('buildReliabilityMeta', () => {
   it('기본 성공이면 LIVE 상태를 반환한다', () => {
     const meta = buildReliabilityMeta('중구', baseFetch, true);
     expect(meta.status).toBe('LIVE');
-    expect(meta.label).toBe('실시간 측정소 데이터');
+    expect(meta.label).toBe('최근 1시간 기준 실측 데이터');
   });
 
   it('대체 후보를 사용하면 STATION_FALLBACK 상태를 반환한다', () => {
@@ -110,7 +121,7 @@ describe('buildReliabilityMeta', () => {
       true,
     );
     expect(meta.status).toBe('STATION_FALLBACK');
-    expect(meta.label).toBe('측정소 자동 보정');
+    expect(meta.label).toBe('인근 측정소 자동 보정');
   });
 
   it('대체 데이터면 DEGRADED 상태를 반환한다', () => {
@@ -120,6 +131,7 @@ describe('buildReliabilityMeta', () => {
       false,
     );
     expect(meta.status).toBe('DEGRADED');
+    expect(meta.label).toBe('주변 평균 대체 데이터');
     expect(meta.aiStatus).toBe('failed');
   });
 });

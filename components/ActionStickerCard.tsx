@@ -9,6 +9,7 @@ interface ActionStickerCardProps {
   label: string;
   statusText: string;
   isPositive: boolean;
+  fixedBadgeText?: string;
   delay?: number;
 }
 
@@ -17,6 +18,7 @@ export default function ActionStickerCard({
   label,
   statusText,
   isPositive,
+  fixedBadgeText,
   delay = 0,
 }: ActionStickerCardProps) {
   const Icon = icon;
@@ -28,6 +30,11 @@ export default function ActionStickerCard({
       transition={{ delay, duration: 0.4 }}
       className="bento-card p-4 md:p-5 flex flex-col items-center text-center"
     >
+      {fixedBadgeText && (
+        <div className="mb-2 inline-flex items-center rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-extrabold text-red-700">
+          {fixedBadgeText}
+        </div>
+      )}
       <div className="mb-2 rounded-full bg-gray-50 p-2">
         <Icon className="h-7 w-7 text-black" strokeWidth={2} />
       </div>
