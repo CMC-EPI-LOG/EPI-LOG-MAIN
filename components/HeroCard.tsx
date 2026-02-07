@@ -74,7 +74,7 @@ export default function HeroCard({
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="col-span-2 h-[44vh] min-h-[360px] bento-card flex flex-col items-center justify-center p-7 text-center"
+        className="col-span-2 h-[42vh] min-h-[344px] bento-card flex flex-col items-center justify-center p-7 text-center"
         data-testid="hero-error"
       >
         <div className="text-8xl mb-4">😎</div>
@@ -97,7 +97,7 @@ export default function HeroCard({
   if (isLoading) {
     return (
       <div
-        className="col-span-2 h-[44vh] min-h-[360px] bento-card relative overflow-hidden p-5 md:p-6"
+        className="col-span-2 h-[42vh] min-h-[344px] bento-card relative overflow-hidden p-5 md:p-6"
         data-testid="hero-loading"
       >
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-pulse" />
@@ -136,7 +136,7 @@ export default function HeroCard({
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.5 }}
-      className="col-span-2 h-[44vh] min-h-[360px] bento-card relative flex flex-col items-center justify-between p-5 md:p-6"
+      className="col-span-2 h-[42vh] min-h-[344px] bento-card relative flex flex-col items-center justify-between p-5 md:p-6"
     >
       {/* Profile Badge - Top Left, INSIDE card (diary tab style) */}
       <motion.div

@@ -28,14 +28,14 @@ export default function ActionStickerCard({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.4 }}
-      className="relative bento-card flex min-h-[172px] flex-col items-center justify-center p-4 text-center md:min-h-[180px] md:p-5"
+      className="relative bento-card flex flex-col items-center p-4 text-center md:p-5"
     >
       {fixedBadgeText && (
-        <div className="absolute left-1/2 top-3 inline-flex -translate-x-1/2 items-center rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-extrabold text-red-700 md:top-4">
+        <div className="absolute left-1/2 top-2.5 inline-flex -translate-x-1/2 items-center rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-extrabold text-red-700 md:top-3">
           {fixedBadgeText}
         </div>
       )}
-      <div className="flex w-full flex-col items-center text-center pt-2">
+      <div className="flex w-full flex-1 flex-col items-center justify-center pt-5 text-center md:pt-6">
         <div className="mb-2 rounded-full bg-gray-50 p-2">
           <Icon className="h-7 w-7 text-black" strokeWidth={2} />
         </div>
