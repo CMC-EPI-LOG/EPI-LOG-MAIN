@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import { getGradeBadgeColor, getGradeText } from "@/lib/colorUtils";
 
 interface HeroCardProps {
@@ -17,6 +18,24 @@ interface HeroCardProps {
   onRetry?: () => void;
 }
 
+const DEFAULT_LOADING_MESSAGES = [
+  "아이 컨디션에 맞는 실외 활동을 계산하고 있어요.",
+  "최근 1시간 측정값 기준으로 안전도를 확인 중이에요.",
+  "대기질과 프로필을 함께 반영해 맞춤 가이드를 정리하고 있어요.",
+];
+
+const LOCATION_LOADING_MESSAGES = [
+  "선택한 지역의 측정소 데이터를 확인하고 있어요.",
+  "주소와 가장 가까운 유효 측정소를 탐색 중이에요.",
+  "지역 기준으로 실측 데이터와 가이드를 동기화하고 있어요.",
+];
+
+const PROFILE_LOADING_MESSAGES = [
+  "연령/질환 조건으로 위험도를 다시 계산하고 있어요.",
+  "아이 상태에 맞는 행동 가이드를 새로 정리하고 있어요.",
+  "개인화 규칙을 반영해 추천 문구를 업데이트하고 있어요.",
+];
+
 export default function HeroCard({
   character,
   decisionText,
@@ -29,6 +48,30 @@ export default function HeroCard({
   errorMessage = "잠시 후 다시 시도해주세요",
   onRetry,
 }: HeroCardProps) {
+  const loadingMessages = useMemo(() => {
+    if (loadingCaption?.includes("연령/질환")) return PROFILE_LOADING_MESSAGES;
+    if (loadingCaption?.includes("기준으로 데이터 업데이트")) return LOCATION_LOADING_MESSAGES;
+    return DEFAULT_LOADING_MESSAGES;
+  }, [loadingCaption]);
+
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+
+  useEffect(() => {
+    setLoadingMessageIndex(0);
+  }, [loadingMessages]);
+
+  useEffect(() => {
+    if (!isLoading || loadingMessages.length <= 1) return;
+
+    const intervalId = window.setInterval(() => {
+      setLoadingMessageIndex((prev) => (prev + 1) % loadingMessages.length);
+    }, 2200);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isLoading, loadingMessages]);
+
   // Error state
   if (isError) {
     return (
@@ -73,9 +116,15 @@ export default function HeroCard({
           </div>
 
           <div className="mx-auto h-9 w-48 rounded-md bg-gray-200 animate-pulse md:h-10 md:w-56" />
+          <p
+            className="mt-2 text-center text-xs font-semibold text-gray-700 md:text-sm"
+            data-testid="hero-loading-message"
+          >
+            {loadingMessages[loadingMessageIndex]}
+          </p>
           {loadingCaption && (
             <p
-              className="mt-2 text-center text-xs font-semibold text-gray-600"
+              className="mt-1 text-center text-xs font-semibold text-gray-600"
               data-testid="hero-loading-caption"
             >
               {loadingCaption}
