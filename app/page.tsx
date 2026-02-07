@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useUserStore, type UserProfile } from "@/store/useUserStore";
 import HeroCard from "@/components/HeroCard";
 import ActionStickerCard from "@/components/ActionStickerCard";
@@ -15,6 +15,7 @@ import { Activity, Loader2, Settings, Shield } from "lucide-react";
 import toast from "react-hot-toast";
 import { getCharacterPath } from "@/lib/characterUtils";
 import { getBackgroundColor } from "@/lib/colorUtils";
+import { trackCoreEvent } from "@/lib/analytics/ga";
 
 const REPORT_TIMEOUT_MS = 25000;
 
@@ -66,7 +67,7 @@ export default function Home() {
   const activeControllerRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
 
-  const fetchData = async (
+  const fetchData = useCallback(async (
     currentLocation: typeof location,
     currentProfile: typeof profile,
     cause: FetchCause = "initial",
@@ -138,7 +139,7 @@ export default function Home() {
       setIsLocationRefreshing(false);
       setIsProfileRefreshing(false);
     }
-  };
+  }, [data]);
 
   useEffect(() => {
     return () => {
@@ -221,17 +222,42 @@ export default function Home() {
   const handleProfileSubmit = (newProfile: UserProfile) => {
     setProfile(newProfile);
     setIsModalOpen(false);
+    trackCoreEvent("profile_changed", {
+      age_group: newProfile.ageGroup,
+      condition: newProfile.condition,
+    });
     fetchData(location, newProfile, "profile");
   };
 
-  const handleLocationSelect = (address: string, stationName: string) => {
+  const handleLocationSelect = useCallback((address: string, stationName: string) => {
     setDisplayRegion(address);
     const newLocation = { ...location, stationName };
     setLocation(newLocation);
 
     toast.success(`위치가 '${address}'(으)로 변경되었어요!`);
+    trackCoreEvent("location_changed", {
+      display_region: address,
+      station_name: stationName,
+    });
     fetchData(newLocation, profile, "location");
-  };
+  }, [fetchData, location, profile, setLocation]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+
+    const testLocationHandler = (event: Event) => {
+      const customEvent = event as CustomEvent<{ address?: string; stationName?: string }>;
+      const address = customEvent.detail?.address;
+      const stationName = customEvent.detail?.stationName;
+      if (!address || !stationName) return;
+      handleLocationSelect(address, stationName);
+    };
+
+    window.addEventListener("epilog:test-location-select", testLocationHandler);
+    return () => {
+      window.removeEventListener("epilog:test-location-select", testLocationHandler);
+    };
+  }, [data, handleLocationSelect]);
 
   // Dynamic background color based on air quality
   const bgColor = data?.airQuality?.grade
@@ -326,7 +352,10 @@ export default function Home() {
           isError={isHeroError}
           errorTitle={heroErrorTitle}
           errorMessage={heroErrorMessage}
-          onRetry={() => fetchData(location, profile, "retry")}
+          onRetry={() => {
+            trackCoreEvent("retry_clicked", { source: "hero_error" });
+            fetchData(location, profile, "retry");
+          }}
         />
 
         {/* Interactive Checklist - High Priority */}

@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { parseHighlightedText } from '@/lib/textUtils';
+import { trackCoreEvent } from '@/lib/analytics/ga';
 
 interface InsightDrawerProps {
   threeReason?: string[];
@@ -38,7 +39,12 @@ export default function InsightDrawer({
       className="col-span-2 bento-card overflow-hidden"
     >
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!isOpen) {
+            trackCoreEvent('insight_opened', { section: 'insight_drawer' });
+          }
+          setIsOpen(!isOpen);
+        }}
         className="flex w-full items-center justify-between p-5 transition-colors hover:bg-gray-50 md:p-6"
         aria-expanded={isOpen}
         data-testid="insight-toggle"

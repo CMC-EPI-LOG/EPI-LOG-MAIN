@@ -2,6 +2,7 @@
 
 import { Share2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { trackCoreEvent } from '@/lib/analytics/ga';
 
 interface ShareButtonProps {
   nickname?: string;
@@ -11,6 +12,11 @@ interface ShareButtonProps {
 
 export default function ShareButton({ nickname, region, action }: ShareButtonProps) {
   const handleShare = async () => {
+    trackCoreEvent('share_clicked', {
+      region: region || 'unknown',
+      action: action || 'unknown',
+    });
+
     const shareData = {
       title: `${nickname || '우리 아이'}는 오늘 ${action || '조심해야'} 해요!`,
       text: `오늘 ${region || '우리 동네'} 미세먼지 확인하러 가기`,

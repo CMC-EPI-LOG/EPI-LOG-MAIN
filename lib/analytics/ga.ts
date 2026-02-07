@@ -4,7 +4,7 @@ export const GA_ID =
 declare global {
   interface Window {
     gtag?: (...args: unknown[]) => void;
-    dataLayer?: Object[];
+    dataLayer?: object[];
   }
 }
 
@@ -37,4 +37,23 @@ export const trackEvent = (
   const safeParams = sanitizeEventParams(params);
 
   window.gtag?.("event", eventName, safeParams);
+};
+
+export const CORE_EVENT_NAMES = [
+  "location_changed",
+  "profile_changed",
+  "insight_opened",
+  "datagrid_opened",
+  "share_clicked",
+  "retry_clicked",
+] as const;
+
+export type CoreEventName = (typeof CORE_EVENT_NAMES)[number];
+
+export const trackCoreEvent = (
+  eventName: CoreEventName,
+  params?: GaEventParams,
+) => {
+  if (!GA_ID) return;
+  trackEvent(GA_ID, eventName, params);
 };

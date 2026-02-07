@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { ChevronDown, Thermometer, Droplets, Wind, CloudFog, Sun, Factory } from 'lucide-react';
+import { trackCoreEvent } from '@/lib/analytics/ga';
 
 interface DataGridProps {
   data: {
@@ -157,7 +158,12 @@ export default function DataGrid({
       className="col-span-2 bento-card overflow-hidden"
     >
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!isOpen) {
+            trackCoreEvent('datagrid_opened', { section: 'realtime_widget' });
+          }
+          setIsOpen(!isOpen);
+        }}
         className="flex w-full items-center justify-between p-5 transition-colors hover:bg-gray-50 md:p-6"
         aria-label="실시간 수치 펼치기"
         aria-expanded={isOpen}

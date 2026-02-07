@@ -74,7 +74,10 @@ export default function HeroCard({
 
           <div className="mx-auto h-9 w-48 rounded-md bg-gray-200 animate-pulse md:h-10 md:w-56" />
           {loadingCaption && (
-            <p className="mt-2 text-center text-xs font-semibold text-gray-600">
+            <p
+              className="mt-2 text-center text-xs font-semibold text-gray-600"
+              data-testid="hero-loading-caption"
+            >
               {loadingCaption}
             </p>
           )}

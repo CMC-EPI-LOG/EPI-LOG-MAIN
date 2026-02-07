@@ -34,6 +34,16 @@ const mockReport = {
     maskRecommendation: 'KF80 권장',
     references: ['WHO Guidelines'],
   },
+  reliability: {
+    status: 'LIVE',
+    label: '실시간 측정소 데이터',
+    description: '현재 선택한 지역 기준의 최신 측정값을 반영했어요.',
+    requestedStation: '중구',
+    resolvedStation: '중구',
+    triedStations: ['중구'],
+    updatedAt: '2026-02-06T00:10:00.000Z',
+    aiStatus: 'ok',
+  },
   timestamp: '2026-02-06T00:00:00.000Z',
 };
 
@@ -186,6 +196,97 @@ test('왜 그런가요 섹션은 3줄 요약과 자세히 보기만 제공하고
   await expect(detailToggle).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByTestId('insight-detail-content')).toContainText(
     '실외 활동은 가능하지만 활동량을 중강도로 제한하는 것이 안전해요.',
+  );
+});
+
+test('근거/수치 섹션에 데이터 신뢰성 배지가 표시된다', async ({ page }) => {
+  await page.goto('/');
+
+  await page.getByTestId('insight-toggle').click();
+  await expect(page.getByTestId('insight-reliability-badge')).toContainText('실시간 측정소 데이터');
+
+  await page.getByTestId('datagrid-toggle').click();
+  await expect(page.getByTestId('datagrid-reliability-badge')).toContainText('실시간 측정소 데이터');
+});
+
+test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반영된다', async ({ page }) => {
+  const reportForStation = (stationName: string) => {
+    if (stationName === '종로구') {
+      return {
+        ...mockReport,
+        airQuality: {
+          ...mockReport.airQuality,
+          stationName: '종로구',
+          grade: 'GOOD',
+          pm25_value: 12,
+          pm10_value: 24,
+          o3_value: 0.028,
+          no2_value: 0.017,
+        },
+        aiGuide: {
+          ...mockReport.aiGuide,
+          summary: '종로구 기준으로는 외출하기 좋아요',
+        },
+        reliability: {
+          ...mockReport.reliability,
+          requestedStation: '종로구',
+          resolvedStation: '종로구',
+          triedStations: ['종로구'],
+        },
+      };
+    }
+
+    return mockReport;
+  };
+
+  await page.unroute('**/api/daily-report');
+  await page.route('**/api/daily-report', async (route) => {
+    const body = route.request().postDataJSON() as {
+      stationName?: string;
+      profile?: { ageGroup?: string; condition?: string };
+    };
+
+    const stationName = body.stationName || '중구';
+    const isProfileRefresh = body.profile?.ageGroup === 'infant' && body.profile?.condition === 'asthma';
+    const payload = reportForStation(stationName);
+
+    if (stationName === '종로구' || isProfileRefresh) {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(payload),
+    });
+  });
+
+  await page.goto('/');
+  await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible();
+
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent('epilog:test-location-select', {
+        detail: { address: '서울 종로구', stationName: '종로구' },
+      }),
+    );
+  });
+
+  await expect(page.getByTestId('hero-loading')).toBeVisible();
+  await expect(page.getByTestId('hero-loading-caption')).toContainText('서울 종로구 기준으로 데이터 업데이트 중');
+  await expect(page.getByText('종로구 기준으로는 외출하기 좋아요')).toBeVisible();
+
+  await page.getByTestId('datagrid-toggle').click();
+  await expect(page.getByText('12')).toBeVisible();
+
+  await page.getByTestId('settings-button').click();
+  await page.getByRole('button', { name: /영아/ }).click();
+  await page.getByRole('button', { name: /천식/ }).click();
+  await page.getByTestId('onboarding-submit').click();
+
+  await expect(page.getByTestId('hero-loading')).toBeVisible();
+  await expect(page.getByTestId('hero-loading-caption')).toContainText(
+    '선택한 연령/질환 기준으로 맞춤 가이드를 다시 계산 중',
   );
 });
 
