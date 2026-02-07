@@ -166,40 +166,42 @@ export default function InsightDrawer({
           )}
 
           {displayDetail && (
-            <div className="flex justify-end">
-              <button
-                onClick={() => {
-                  if (!isDetailExpanded) {
-                    trackCoreEvent('detail_expanded', { ui_section: 'insight_drawer' });
-                  }
-                  setIsDetailExpanded(!isDetailExpanded);
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold text-gray-600">상세 설명</p>
+                <button
+                  onClick={() => {
+                    if (!isDetailExpanded) {
+                      trackCoreEvent('detail_expanded', { ui_section: 'insight_drawer' });
+                    }
+                    setIsDetailExpanded(!isDetailExpanded);
+                  }}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-100"
+                  aria-expanded={isDetailExpanded}
+                  data-testid="insight-detail-toggle"
+                >
+                  자세히 보기
+                  <span className="text-[10px]">{isDetailExpanded ? '▲' : '▽'}</span>
+                </button>
+              </div>
+              <motion.div
+                initial={false}
+                animate={{
+                  height: isDetailExpanded ? 'auto' : 0,
+                  opacity: isDetailExpanded ? 1 : 0,
                 }}
-                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-100"
-                aria-expanded={isDetailExpanded}
-                data-testid="insight-detail-toggle"
+                transition={{ duration: 0.25 }}
+                className="overflow-hidden"
               >
-                자세히 보기
-                <span className="text-[10px]">{isDetailExpanded ? '▲' : '▽'}</span>
-              </button>
+                <p
+                  className="text-sm leading-7 text-gray-700"
+                  data-testid="insight-detail-content"
+                >
+                  {parseHighlightedText(displayDetail)}
+                </p>
+              </motion.div>
             </div>
           )}
-
-          <motion.div
-            initial={false}
-            animate={{
-              height: isDetailExpanded ? 'auto' : 0,
-              opacity: isDetailExpanded ? 1 : 0,
-            }}
-            transition={{ duration: 0.25 }}
-            className="overflow-hidden"
-          >
-            <p
-              className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-7 text-gray-700"
-              data-testid="insight-detail-content"
-            >
-              {parseHighlightedText(displayDetail)}
-            </p>
-          </motion.div>
 
           <div className="rounded-lg border border-gray-200 bg-white p-3" data-testid="insight-voc-feedback">
             <div className="mb-2 text-xs font-semibold text-gray-600">이 설명이 도움이 되었나요?</div>

@@ -158,7 +158,7 @@ export default function HeroCard({
         {getGradeText(grade)}
       </motion.div>
 
-      {/* Character - Center, Large with Circle Background */}
+      {/* Character - Center, Large */}
       <motion.div
         initial={{ scale: 0, rotate: -10 }}
         animate={{ scale: 1, rotate: 0 }}
@@ -166,9 +166,6 @@ export default function HeroCard({
         className="flex-1 flex items-center justify-center"
       >
         <div className="relative h-56 w-56 md:h-60 md:w-60">
-          {/* Perfect Circle Background - Dashed Border */}
-          <div className="absolute left-1/2 top-1/2 h-[276px] w-[276px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-gray-300 z-0 md:h-[296px] md:w-[296px]" />
-
           {/* Character with Glow */}
           <div className="relative h-56 w-56 character-glow md:h-60 md:w-60">
             <Image
