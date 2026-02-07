@@ -5,6 +5,8 @@ export interface ProfileInput {
 
 export interface AirQualityView {
   stationName: string;
+  sidoName?: string | null;
+  dataTime?: string | null;
   grade: 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD';
   value?: number;
   pm25_value?: number;

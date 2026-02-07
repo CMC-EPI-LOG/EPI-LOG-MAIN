@@ -45,20 +45,15 @@ export async function POST(request: Request) {
          return NextResponse.json({ error: 'No results found' }, { status: 404 });
     }
     
-    // We prefer 3depth (Dong) if available, else 2depth (Gu)
-    // Actually, for air quality, 'Gu' (2depth) is often better for matching stations, 
-    // but users feel more "local" with 'Dong'.
-    // Let's send back both or a formatted string. 
-    // The previous app used 'stationName' which often maps to 'Gu' level in AirKorea.
-    // AirKorea stations are often by 'Gu' or major points.
-    // Let's return 2depth (Gu) as primary for station matching, and 3depth (Dong) for display?
-    // Request says: "행정동(예: 역삼동)으로 변환 후 Store에 저장."
-    // Let's use 3depth (Dong) as 'regionName' and 2depth (Gu) as 'stationName' candidate.
-    
+    const depth2 = (region.region_2depth_name || '').trim();
+    const depth3 = (region.region_3depth_name || '').trim();
+    const stationCandidate = [depth2, depth3].filter(Boolean).join(' ').trim() || depth2 || depth3;
+
     return NextResponse.json({
       address: region.address_name,
-      regionName: region.region_3depth_name, // 역삼1동
-      stationCandidate: region.region_2depth_name, // 강남구
+      regionName: depth3 || depth2, // 역삼1동 (없으면 강남구)
+      // 2depth만 쓰면 세종시처럼 광역 단위로 고정 템플릿 응답이 나올 수 있어 3depth를 함께 전달
+      stationCandidate,
     });
 
   } catch (error) {

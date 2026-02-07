@@ -3,6 +3,8 @@ import { buildReliabilityMeta, deriveDecisionSignals } from '@/lib/dailyReportDe
 
 const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai.vercel.app';
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
+const FALLBACK_TEMP = 22;
+const FALLBACK_HUMIDITY = 45;
 
 const UNKNOWN_STATION_SIGNATURE = {
   pm25_value: 65,
@@ -15,6 +17,8 @@ const STATION_HINTS: Record<string, string[]> = {
   '성남시 분당구': ['정자동', '수내동', '운중동'],
   분당구: ['정자동', '수내동', '운중동'],
   판교동: ['운중동', '정자동'],
+  세종시: ['보람동', '아름동', '한솔동', '조치원읍'],
+  세종특별자치시: ['보람동', '아름동', '한솔동', '조치원읍'],
 };
 
 interface ProfileInput {
@@ -23,7 +27,9 @@ interface ProfileInput {
 }
 
 interface AirQualityRaw {
+  sidoName?: string;
   stationName?: string;
+  dataTime?: string;
   pm25_grade?: string;
   pm25_value?: number;
   pm10_grade?: string;
@@ -41,7 +47,9 @@ interface AirQualityRaw {
 }
 
 interface AirQualityView {
+  sidoName?: string | null;
   stationName: string;
+  dataTime?: string | null;
   grade: 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD';
   value?: number;
   pm25_value?: number;
@@ -165,6 +173,22 @@ function isUnknownStationSignature(data: AirQualityRaw | null): boolean {
   );
 }
 
+function isUnknownMetricSignature(
+  data:
+    | Pick<AirQualityRaw, 'pm25_value' | 'pm10_value' | 'o3_value' | 'no2_value'>
+    | Pick<AiGuideView, 'pm25_value' | 'pm10_value' | 'o3_value' | 'no2_value'>
+    | null
+    | undefined,
+): boolean {
+  if (!data) return false;
+  return (
+    Number(data.pm25_value) === UNKNOWN_STATION_SIGNATURE.pm25_value &&
+    Number(data.pm10_value) === UNKNOWN_STATION_SIGNATURE.pm10_value &&
+    Math.abs(Number(data.o3_value) - UNKNOWN_STATION_SIGNATURE.o3_value) < 0.000001 &&
+    Math.abs(Number(data.no2_value) - UNKNOWN_STATION_SIGNATURE.no2_value) < 0.000001
+  );
+}
+
 async function fetchAirDataWithStationFallback(stationName: string): Promise<AirFetchResult> {
   const candidates = buildStationCandidates(stationName);
   let fallbackResult: { data: AirQualityRaw; resolvedStation: string } | null = null;
@@ -219,8 +243,12 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
 function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQualityView {
   if (!raw) {
     return {
+      sidoName: null,
       stationName: fallbackStation,
+      dataTime: null,
       grade: 'NORMAL',
+      temp: FALLBACK_TEMP,
+      humidity: FALLBACK_HUMIDITY,
       detail: null,
     };
   }
@@ -237,7 +265,9 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
   const worstGrade = Math.max(pm10Grade, pm25Grade);
 
   return {
+    sidoName: raw.sidoName ?? null,
     stationName: raw.stationName || fallbackStation,
+    dataTime: raw.dataTime ?? null,
     grade: worstGrade === 4 ? 'VERY_BAD' : worstGrade === 3 ? 'BAD' : worstGrade === 2 ? 'NORMAL' : 'GOOD',
     value: raw.pm10_value,
     pm25_value: raw.pm25_value,
@@ -246,8 +276,8 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
     no2_value: raw.no2_value,
     co_value: raw.co_value,
     so2_value: raw.so2_value,
-    temp: raw.temp,
-    humidity: raw.humidity,
+    temp: raw.temp ?? FALLBACK_TEMP,
+    humidity: raw.humidity ?? FALLBACK_HUMIDITY,
     detail: {
       pm10: { grade: pm10Grade, value: raw.pm10_value },
       pm25: { grade: pm25Grade, value: raw.pm25_value },
@@ -348,16 +378,32 @@ export async function POST(request: Request) {
     console.log('[BFF] Resolved station for air/ai:', airFetch.resolvedStation);
 
     let aiData: AiGuideView | null = aiSettled.status === 'fulfilled' ? aiSettled.value : null;
+    let aiOk = aiSettled.status === 'fulfilled';
     if (aiSettled.status !== 'fulfilled') {
       console.error('[BFF] AI API Error(primary):', aiSettled.reason);
     }
 
-    // Primary AI 실패 시에만 resolved station으로 1회 재시도
-    if (!aiData && airFetch.resolvedStation !== requestedStation) {
+    // 측정소 보정이 일어났다면 AI도 동일 측정소 기준으로 맞춰 일관성 확보
+    if (airFetch.resolvedStation !== requestedStation) {
       try {
-        aiData = await fetchAiData(airFetch.resolvedStation, aiProfile);
+        const retriedAiData = await fetchAiData(airFetch.resolvedStation, aiProfile);
+        aiData = retriedAiData;
+        aiOk = true;
       } catch (error) {
         console.error('[BFF] AI API Error(retry with resolved station):', error);
+      }
+    }
+
+    // 보정이 없더라도 AI 값이 기본 템플릿 시그니처면 동일 측정소로 1회 재시도
+    if (aiData && isUnknownMetricSignature(aiData)) {
+      try {
+        const retriedAiData = await fetchAiData(airFetch.resolvedStation, aiProfile);
+        if (!isUnknownMetricSignature(retriedAiData)) {
+          aiData = retriedAiData;
+        }
+        aiOk = true;
+      } catch (error) {
+        console.error('[BFF] AI API Error(retry with unknown signature):', error);
       }
     }
 
@@ -377,7 +423,7 @@ export async function POST(request: Request) {
     if (airData.no2_value == null && aiData.no2_value != null) airData.no2_value = aiData.no2_value;
 
     const derived = deriveDecisionSignals(airData, aiData, finalProfile);
-    const reliability = buildReliabilityMeta(requestedStation, airFetch, aiSettled.status === 'fulfilled');
+    const reliability = buildReliabilityMeta(requestedStation, airFetch, aiOk);
 
     return NextResponse.json({
       airQuality: derived.airData,

@@ -13,6 +13,8 @@ interface InsightDrawerProps {
   reliabilityLabel?: string;
   reliabilityDescription?: string;
   reliabilityUpdatedAt?: string;
+  measurementDataTime?: string;
+  measurementRegion?: string;
   delay?: number;
 }
 
@@ -23,6 +25,8 @@ export default function InsightDrawer({
   reliabilityLabel,
   reliabilityDescription,
   reliabilityUpdatedAt,
+  measurementDataTime,
+  measurementRegion,
   delay = 0,
 }: InsightDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -68,16 +72,27 @@ export default function InsightDrawer({
         className="overflow-hidden"
       >
         <div className="space-y-4 border-t border-gray-100 px-5 pb-5 pt-4 md:px-6 md:pb-6">
-          {reliabilityLabel && (
-            <div
-              className="inline-flex flex-wrap items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-[11px] font-semibold text-gray-600"
-              title={reliabilityDescription}
-              data-testid="insight-reliability-badge"
-            >
-              <span>{reliabilityLabel}</span>
-              {reliabilityUpdatedAt && <span>· {reliabilityUpdatedAt} 기준</span>}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {reliabilityLabel && (
+              <div
+                className="inline-flex flex-wrap items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-[11px] font-semibold text-gray-600"
+                title={reliabilityDescription}
+                data-testid="insight-reliability-badge"
+              >
+                <span>{reliabilityLabel}</span>
+                {reliabilityUpdatedAt && <span>· {reliabilityUpdatedAt} 기준</span>}
+              </div>
+            )}
+            {(measurementDataTime || measurementRegion) && (
+              <div
+                className="inline-flex flex-wrap items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-[11px] font-semibold text-gray-600"
+                data-testid="insight-measurement-badge"
+              >
+                {measurementDataTime && <span>측정 {measurementDataTime}</span>}
+                {measurementRegion && <span>· {measurementRegion}</span>}
+              </div>
+            )}
+          </div>
 
           {hasSummary && (
             <motion.div

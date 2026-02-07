@@ -24,6 +24,9 @@ type FetchCause = "initial" | "location" | "profile" | "retry";
 
 interface DailyReportData {
   airQuality?: {
+    sidoName?: string | null;
+    stationName?: string;
+    dataTime?: string | null;
     grade?: string;
     pm25_value?: number;
     pm10_value?: number;
@@ -299,6 +302,10 @@ export default function Home() {
         minute: "2-digit",
       })
     : undefined;
+  const measurementRegion = data?.airQuality?.stationName
+    ? [data.airQuality.sidoName, data.airQuality.stationName].filter(Boolean).join(" ")
+    : undefined;
+  const measurementDataTime = data?.airQuality?.dataTime ?? undefined;
 
   return (
     <main 
@@ -390,6 +397,8 @@ export default function Home() {
           reliabilityLabel={data?.reliability?.label}
           reliabilityDescription={data?.reliability?.description}
           reliabilityUpdatedAt={reliabilityUpdatedAt}
+          measurementDataTime={measurementDataTime}
+          measurementRegion={measurementRegion}
           delay={1.0}
         />
 
@@ -407,6 +416,8 @@ export default function Home() {
             reliabilityLabel={data?.reliability?.label}
             reliabilityDescription={data?.reliability?.description}
             reliabilityUpdatedAt={reliabilityUpdatedAt}
+            measurementDataTime={measurementDataTime}
+            measurementRegion={measurementRegion}
             delay={1.1}
           />
         )}
