@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useState } from 'react';
-import { ChevronDown, Thermometer, Droplets, Wind, CloudFog, Sun, Factory } from 'lucide-react';
+import { ChevronDown, Thermometer, Droplets, Wind, CloudFog, Sun, Factory, Loader2, RotateCw } from 'lucide-react';
 import { trackCoreEvent } from '@/lib/analytics/ga';
 
 interface DataGridProps {
@@ -19,6 +19,10 @@ interface DataGridProps {
   reliabilityUpdatedAt?: string;
   measurementDataTime?: string;
   measurementRegion?: string;
+  freshnessStatus?: 'FRESH' | 'DELAYED' | 'STALE';
+  freshnessDescription?: string;
+  onRefreshData?: () => void;
+  isRefreshing?: boolean;
   delay?: number;
 }
 
@@ -150,9 +154,18 @@ export default function DataGrid({
   reliabilityUpdatedAt,
   measurementDataTime,
   measurementRegion,
+  freshnessStatus,
+  freshnessDescription,
+  onRefreshData,
+  isRefreshing = false,
   delay = 0,
 }: DataGridProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const isDataDelayed = freshnessStatus === 'DELAYED' || freshnessStatus === 'STALE';
+  const freshnessBadgeClass =
+    freshnessStatus === 'STALE'
+      ? 'border-red-200 bg-red-50 text-red-700'
+      : 'border-amber-200 bg-amber-50 text-amber-700';
 
   return (
     <motion.div
@@ -213,6 +226,26 @@ export default function DataGrid({
                 {measurementDataTime && <span>측정 {measurementDataTime}</span>}
                 {measurementRegion && <span>· {measurementRegion}</span>}
               </div>
+            )}
+            {isDataDelayed && (
+              <div
+                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${freshnessBadgeClass}`}
+                title={freshnessDescription}
+                data-testid="datagrid-freshness-badge"
+              >
+                <span>지연 데이터</span>
+              </div>
+            )}
+            {isDataDelayed && onRefreshData && (
+              <button
+                type="button"
+                onClick={onRefreshData}
+                className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1 text-[11px] font-semibold text-gray-700 transition-colors hover:bg-gray-100"
+                data-testid="datagrid-refresh-button"
+              >
+                {isRefreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+                자동 재조회
+              </button>
             )}
           </div>
 

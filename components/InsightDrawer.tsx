@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Loader2, RotateCw } from 'lucide-react';
 import { parseHighlightedText } from '@/lib/textUtils';
 import { trackCoreEvent } from '@/lib/analytics/ga';
 
@@ -15,6 +15,11 @@ interface InsightDrawerProps {
   reliabilityUpdatedAt?: string;
   measurementDataTime?: string;
   measurementRegion?: string;
+  decisionSignalChips?: string[];
+  freshnessStatus?: 'FRESH' | 'DELAYED' | 'STALE';
+  freshnessDescription?: string;
+  onRefreshData?: () => void;
+  isRefreshing?: boolean;
   delay?: number;
 }
 
@@ -27,13 +32,24 @@ export default function InsightDrawer({
   reliabilityUpdatedAt,
   measurementDataTime,
   measurementRegion,
+  decisionSignalChips,
+  freshnessStatus,
+  freshnessDescription,
+  onRefreshData,
+  isRefreshing = false,
   delay = 0,
 }: InsightDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isDetailExpanded, setIsDetailExpanded] = useState(false);
+  const [feedback, setFeedback] = useState<'helpful' | 'not_helpful' | null>(null);
 
   const hasSummary = Boolean(threeReason && threeReason.length > 0);
   const displayDetail = detailAnswer || reasoning || 'AI 선생님이 잠시 쉬고 있어요.';
+  const isDataDelayed = freshnessStatus === 'DELAYED' || freshnessStatus === 'STALE';
+  const freshnessBadgeClass =
+    freshnessStatus === 'STALE'
+      ? 'border-red-200 bg-red-50 text-red-700'
+      : 'border-amber-200 bg-amber-50 text-amber-700';
 
   return (
     <motion.div
@@ -92,7 +108,40 @@ export default function InsightDrawer({
                 {measurementRegion && <span>· {measurementRegion}</span>}
               </div>
             )}
+            {isDataDelayed && (
+              <div
+                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${freshnessBadgeClass}`}
+                title={freshnessDescription}
+                data-testid="insight-freshness-badge"
+              >
+                <span>지연 데이터</span>
+              </div>
+            )}
+            {isDataDelayed && onRefreshData && (
+              <button
+                type="button"
+                onClick={onRefreshData}
+                className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1 text-[11px] font-semibold text-gray-700 transition-colors hover:bg-gray-100"
+                data-testid="insight-refresh-button"
+              >
+                {isRefreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+                자동 재조회
+              </button>
+            )}
           </div>
+
+          {!!decisionSignalChips?.length && (
+            <div className="flex flex-wrap items-center gap-2" data-testid="insight-decision-chips">
+              {decisionSignalChips.map((chip) => (
+                <span
+                  key={chip}
+                  className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700"
+                >
+                  {chip}
+                </span>
+              ))}
+            </div>
+          )}
 
           {hasSummary && (
             <motion.div
@@ -119,7 +168,12 @@ export default function InsightDrawer({
           {displayDetail && (
             <div className="flex justify-end">
               <button
-                onClick={() => setIsDetailExpanded(!isDetailExpanded)}
+                onClick={() => {
+                  if (!isDetailExpanded) {
+                    trackCoreEvent('detail_expanded', { ui_section: 'insight_drawer' });
+                  }
+                  setIsDetailExpanded(!isDetailExpanded);
+                }}
                 className="inline-flex shrink-0 items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-100"
                 aria-expanded={isDetailExpanded}
                 data-testid="insight-detail-toggle"
@@ -146,6 +200,50 @@ export default function InsightDrawer({
               {parseHighlightedText(displayDetail)}
             </p>
           </motion.div>
+
+          <div className="rounded-lg border border-gray-200 bg-white p-3" data-testid="insight-voc-feedback">
+            <div className="mb-2 text-xs font-semibold text-gray-600">이 설명이 도움이 되었나요?</div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedback('helpful');
+                  trackCoreEvent('voc_feedback_submitted', {
+                    ui_section: 'insight_drawer',
+                    feedback_type: 'helpful',
+                  });
+                }}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  feedback === 'helpful'
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+                aria-pressed={feedback === 'helpful'}
+                data-testid="insight-feedback-helpful"
+              >
+                👍 도움됐어요
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedback('not_helpful');
+                  trackCoreEvent('voc_feedback_submitted', {
+                    ui_section: 'insight_drawer',
+                    feedback_type: 'not_helpful',
+                  });
+                }}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  feedback === 'not_helpful'
+                    ? 'border-orange-300 bg-orange-50 text-orange-700'
+                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+                aria-pressed={feedback === 'not_helpful'}
+                data-testid="insight-feedback-not-helpful"
+              >
+                👎 아쉬워요
+              </button>
+            </div>
+          </div>
         </div>
       </motion.div>
     </motion.div>

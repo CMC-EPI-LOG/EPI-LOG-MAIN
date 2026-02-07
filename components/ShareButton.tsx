@@ -8,34 +8,75 @@ interface ShareButtonProps {
   nickname?: string;
   region?: string;
   action?: string; // e.g. "실내 놀이", "마스크 필수"
+  summary?: string;
+  reason?: string;
 }
 
-export default function ShareButton({ nickname, region, action }: ShareButtonProps) {
+function toSingleLine(value?: string) {
+  if (!value) return '';
+  return value
+    .replace(/\*\*/g, '')
+    .replace(/`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export default function ShareButton({ nickname, region, action, summary, reason }: ShareButtonProps) {
   const handleShare = async () => {
-    trackCoreEvent('share_clicked', {
-      station_name: region || 'unknown',
-      recommended_action: action || 'unknown',
-    });
+    const decisionLine = toSingleLine(action || summary || '오늘 활동 가이드를 확인해보세요');
+    const reasonLine = toSingleLine(reason || '');
 
     const shareData = {
-      title: `${nickname || '우리 아이'}는 오늘 ${action || '조심해야'} 해요!`,
-      text: `오늘 ${region || '우리 동네'} 미세먼지 확인하러 가기`,
+      title: `${nickname || '우리 아이'} 오늘 공기질 가이드`,
+      text: `${region || '우리 동네'} 기준 · ${decisionLine}${reasonLine ? ` · 이유: ${reasonLine}` : ''}`,
       url: window.location.href,
     };
 
     if (navigator.share) {
       try {
         await navigator.share(shareData);
+        trackCoreEvent('share_clicked', {
+          station_name: region || 'unknown',
+          recommended_action: action || summary || 'unknown',
+          share_channel: 'native',
+          share_result: 'success',
+        });
       } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          trackCoreEvent('share_clicked', {
+            station_name: region || 'unknown',
+            recommended_action: action || summary || 'unknown',
+            share_channel: 'native',
+            share_result: 'cancel',
+          });
+          return;
+        }
+        trackCoreEvent('share_clicked', {
+          station_name: region || 'unknown',
+          recommended_action: action || summary || 'unknown',
+          share_channel: 'native',
+          share_result: 'error',
+        });
         console.error('Share failed:', err);
         toast.error('공유를 완료하지 못했어요.');
       }
     } else {
       try {
         await navigator.clipboard.writeText(window.location.href);
+        trackCoreEvent('share_clicked', {
+          station_name: region || 'unknown',
+          recommended_action: action || summary || 'unknown',
+          share_channel: 'clipboard',
+          share_result: 'success',
+        });
         toast.success('링크가 복사되었습니다!');
       } catch (err) {
+        trackCoreEvent('share_clicked', {
+          station_name: region || 'unknown',
+          recommended_action: action || summary || 'unknown',
+          share_channel: 'clipboard',
+          share_result: 'error',
+        });
         console.error('Clipboard failed:', err);
         toast.error('링크 복사에 실패했습니다.');
       }

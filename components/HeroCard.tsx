@@ -57,10 +57,6 @@ export default function HeroCard({
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
 
   useEffect(() => {
-    setLoadingMessageIndex(0);
-  }, [loadingMessages]);
-
-  useEffect(() => {
     if (!isLoading || loadingMessages.length <= 1) return;
 
     const intervalId = window.setInterval(() => {
@@ -120,7 +116,7 @@ export default function HeroCard({
             className="mt-2 text-center text-xs font-semibold text-gray-700 md:text-sm"
             data-testid="hero-loading-message"
           >
-            {loadingMessages[loadingMessageIndex]}
+            {loadingMessages[loadingMessageIndex % loadingMessages.length]}
           </p>
           {loadingCaption && (
             <p

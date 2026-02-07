@@ -118,6 +118,11 @@ export const CORE_EVENT_NAMES = [
   "datagrid_opened",
   "share_clicked",
   "retry_clicked",
+  "loading_shown",
+  "loading_duration_ms",
+  "fallback_exposed",
+  "detail_expanded",
+  "voc_feedback_submitted",
 ] as const;
 
 export type CoreEventName = (typeof CORE_EVENT_NAMES)[number];

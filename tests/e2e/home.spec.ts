@@ -34,6 +34,16 @@ const mockReport = {
     maskRecommendation: 'KF80 권장',
     references: ['WHO Guidelines'],
   },
+  decisionSignals: {
+    pm25Grade: 3,
+    o3Grade: 2,
+    adjustedRiskGrade: 3,
+    finalGrade: 'BAD',
+    o3IsDominantRisk: false,
+    o3OutingBanForced: false,
+    infantMaskBanApplied: false,
+    weatherAdjusted: false,
+  },
   reliability: {
     status: 'LIVE',
     label: '최근 1시간 기준 실측 데이터',
@@ -209,6 +219,48 @@ test('근거/수치 섹션에 데이터 신뢰성 배지가 표시된다', async
   await expect(page.getByTestId('datagrid-reliability-badge')).toContainText('최근 1시간 기준 실측 데이터');
 });
 
+test('의사결정 근거 칩과 지연 데이터 배지/재조회 버튼이 노출된다', async ({ page }) => {
+  let requestCount = 0;
+  await page.unroute('**/api/daily-report');
+  await page.route('**/api/daily-report', async (route) => {
+    requestCount += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...mockReport,
+        airQuality: {
+          ...mockReport.airQuality,
+          dataTime: '2024-01-01 00:00',
+        },
+        decisionSignals: {
+          ...mockReport.decisionSignals,
+          o3OutingBanForced: true,
+          infantMaskBanApplied: true,
+          weatherAdjusted: true,
+          finalGrade: 'BAD',
+        },
+      }),
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId('insight-toggle').click();
+
+  await expect(page.getByText('오존 시간대 규칙 적용')).toBeVisible();
+  await expect(page.getByText('영아 마스크 금지 적용')).toBeVisible();
+  await expect(page.getByText('질환/온습도 보정 적용')).toBeVisible();
+  await expect(page.getByTestId('insight-freshness-badge')).toBeVisible();
+  await expect(page.getByTestId('insight-refresh-button')).toBeVisible();
+
+  await page.getByTestId('insight-refresh-button').click();
+  await expect.poll(() => requestCount).toBeGreaterThan(1);
+
+  await page.getByTestId('datagrid-toggle').click();
+  await expect(page.getByTestId('datagrid-freshness-badge')).toBeVisible();
+  await expect(page.getByTestId('datagrid-refresh-button')).toBeVisible();
+});
+
 test('fallback 신뢰성 배지 카피 스냅샷이 유지된다', async ({ page }) => {
   await page.unroute('**/api/daily-report');
   await page.route('**/api/daily-report', async (route) => {
@@ -373,4 +425,19 @@ test('영아 프로필에서는 마스크 카드에 고정 배지가 표시된�
   await page.getByTestId('onboarding-submit').click();
 
   await expect(page.getByText('영아 마스크 금지')).toBeVisible();
+});
+
+test('왜 그런가요 하단 VOC 1탭 피드백이 동작한다', async ({ page }) => {
+  await page.goto('/');
+
+  await page.getByTestId('insight-toggle').click();
+  const helpful = page.getByTestId('insight-feedback-helpful');
+  const notHelpful = page.getByTestId('insight-feedback-not-helpful');
+
+  await expect(helpful).toBeVisible();
+  await expect(notHelpful).toBeVisible();
+
+  await helpful.click();
+  await expect(helpful).toHaveAttribute('aria-pressed', 'true');
+  await expect(notHelpful).toHaveAttribute('aria-pressed', 'false');
 });

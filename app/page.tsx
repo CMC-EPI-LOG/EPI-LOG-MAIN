@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUserStore, type UserProfile } from "@/store/useUserStore";
 import HeroCard from "@/components/HeroCard";
 import ActionStickerCard from "@/components/ActionStickerCard";
@@ -19,6 +19,8 @@ import { getBackgroundColor } from "@/lib/colorUtils";
 import { setCoreEventContext, trackCoreEvent } from "@/lib/analytics/ga";
 
 const REPORT_TIMEOUT_MS = 25000;
+const FRESHNESS_DELAYED_MINUTES = 60;
+const FRESHNESS_STALE_MINUTES = 90;
 
 type LoadErrorKind = "timeout" | "fetch" | null;
 type FetchCause = "initial" | "location" | "profile" | "retry";
@@ -45,6 +47,17 @@ interface DailyReportData {
     maskRecommendation?: string;
     activityRecommendation?: string;
   };
+  decisionSignals?: {
+    pm25Grade?: number;
+    o3Grade?: number;
+    adjustedRiskGrade?: number;
+    finalGrade?: "GOOD" | "NORMAL" | "BAD" | "VERY_BAD";
+    o3IsDominantRisk?: boolean;
+    o3OutingBanForced?: boolean;
+    infantMaskBanApplied?: boolean;
+    weatherAdjusted?: boolean;
+    weatherAdjustmentReason?: string;
+  };
   reliability?: {
     status?: "LIVE" | "STATION_FALLBACK" | "DEGRADED";
     label?: string;
@@ -55,6 +68,24 @@ interface DailyReportData {
     updatedAt?: string;
     aiStatus?: "ok" | "failed";
   };
+  timestamp?: string;
+}
+
+function parseKstDataTimeToEpoch(raw?: string | null): number | null {
+  if (!raw) return null;
+  const matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+  if (!matched) return null;
+
+  const [, year, month, day, hour, minute] = matched;
+  const utcMillis = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour) - 9,
+    Number(minute),
+  );
+
+  return Number.isNaN(utcMillis) ? null : utcMillis;
 }
 
 export default function Home() {
@@ -70,6 +101,9 @@ export default function Home() {
   const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
   const activeControllerRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
+  const activeFetchCauseRef = useRef<FetchCause>("initial");
+  const loadingStartedAtRef = useRef<number | null>(null);
+  const lastFallbackExposeKeyRef = useRef<string | null>(null);
 
   const fetchData = useCallback(async (
     currentLocation: typeof location,
@@ -82,6 +116,7 @@ export default function Home() {
     );
 
     let didTimeout = false;
+    activeFetchCauseRef.current = cause;
     setLoadErrorKind(null);
     if (data) {
       setIsRefreshing(true);
@@ -307,6 +342,135 @@ export default function Home() {
     ? [data.airQuality.sidoName, data.airQuality.stationName].filter(Boolean).join(" ")
     : undefined;
   const measurementDataTime = data?.airQuality?.dataTime ?? undefined;
+  const freshnessMeta = useMemo(() => {
+    const measuredAtMillis = parseKstDataTimeToEpoch(data?.airQuality?.dataTime);
+    if (!measuredAtMillis) {
+      return {
+        status: "UNKNOWN" as const,
+        ageMinutes: null as number | null,
+        description: undefined as string | undefined,
+        needsRefresh: false,
+      };
+    }
+
+    const ageMinutes = Math.max(
+      0,
+      Math.floor((Date.now() - measuredAtMillis) / 60000),
+    );
+
+    if (ageMinutes >= FRESHNESS_STALE_MINUTES) {
+      return {
+        status: "STALE" as const,
+        ageMinutes,
+        description: `측정 시각 기준 ${ageMinutes}분 경과로 최신값 자동 재조회가 필요해요.`,
+        needsRefresh: true,
+      };
+    }
+
+    if (ageMinutes >= FRESHNESS_DELAYED_MINUTES) {
+      return {
+        status: "DELAYED" as const,
+        ageMinutes,
+        description: `측정 시각 기준 ${ageMinutes}분 경과로 데이터가 지연됐을 수 있어요.`,
+        needsRefresh: true,
+      };
+    }
+
+    return {
+      status: "FRESH" as const,
+      ageMinutes,
+      description: undefined as string | undefined,
+      needsRefresh: false,
+    };
+  }, [data?.airQuality?.dataTime]);
+
+  const decisionSignalChips = useMemo(() => {
+    const chips: string[] = [];
+    if (!data?.decisionSignals) return chips;
+
+    if (data.decisionSignals.o3OutingBanForced) {
+      chips.push("오존 시간대 규칙 적용");
+    }
+
+    if (data.decisionSignals.infantMaskBanApplied) {
+      chips.push("영아 마스크 금지 적용");
+    }
+
+    if (data.decisionSignals.weatherAdjusted) {
+      chips.push("질환/온습도 보정 적용");
+    }
+
+    if (data.decisionSignals.finalGrade) {
+      const finalGradeText =
+        data.decisionSignals.finalGrade === "GOOD"
+          ? "좋음"
+          : data.decisionSignals.finalGrade === "NORMAL"
+            ? "보통"
+            : data.decisionSignals.finalGrade === "BAD"
+              ? "나쁨"
+              : "매우나쁨";
+      chips.push(`최종 위험도 ${finalGradeText}`);
+    }
+
+    return chips;
+  }, [data?.decisionSignals]);
+
+  const handleFreshnessRefresh = useCallback(() => {
+    trackCoreEvent("retry_clicked", { trigger_source: "freshness_badge" });
+    fetchData(location, profile, "retry");
+  }, [fetchData, location, profile]);
+
+  useEffect(() => {
+    if (isHeroLoading) {
+      if (loadingStartedAtRef.current === null) {
+        loadingStartedAtRef.current = Date.now();
+        trackCoreEvent("loading_shown", {
+          loading_cause: activeFetchCauseRef.current,
+          has_cached_data: Boolean(data),
+        });
+      }
+      return;
+    }
+
+    if (loadingStartedAtRef.current === null) return;
+
+    const durationMs = Date.now() - loadingStartedAtRef.current;
+    loadingStartedAtRef.current = null;
+    trackCoreEvent("loading_duration_ms", {
+      loading_cause: activeFetchCauseRef.current,
+      loading_duration_ms: durationMs,
+      loading_outcome: loadErrorKind ? "error" : "success",
+    });
+  }, [isHeroLoading, loadErrorKind, data]);
+
+  useEffect(() => {
+    const status = data?.reliability?.status;
+    if (!status || status === "LIVE") return;
+
+    const key = [
+      status,
+      data?.timestamp || "",
+      data?.reliability?.resolvedStation || "",
+      data?.airQuality?.stationName || "",
+    ].join(":");
+
+    if (lastFallbackExposeKeyRef.current === key) return;
+    lastFallbackExposeKeyRef.current = key;
+
+    trackCoreEvent("fallback_exposed", {
+      reliability_status: status,
+      requested_station: data?.reliability?.requestedStation || "unknown",
+      resolved_station: data?.reliability?.resolvedStation || "unknown",
+      ai_status: data?.reliability?.aiStatus || "unknown",
+    });
+  }, [
+    data?.airQuality?.stationName,
+    data?.reliability?.aiStatus,
+    data?.reliability?.requestedStation,
+    data?.reliability?.resolvedStation,
+    data?.reliability?.status,
+    data?.timestamp,
+  ]);
 
   useEffect(() => {
     setCoreEventContext({
@@ -423,6 +587,11 @@ export default function Home() {
           reliabilityUpdatedAt={reliabilityUpdatedAt}
           measurementDataTime={measurementDataTime}
           measurementRegion={measurementRegion}
+          decisionSignalChips={decisionSignalChips}
+          freshnessStatus={freshnessMeta.status === "UNKNOWN" ? undefined : freshnessMeta.status}
+          freshnessDescription={freshnessMeta.description}
+          onRefreshData={freshnessMeta.needsRefresh ? handleFreshnessRefresh : undefined}
+          isRefreshing={isRefreshing}
           delay={1.0}
         />
 
@@ -442,6 +611,10 @@ export default function Home() {
             reliabilityUpdatedAt={reliabilityUpdatedAt}
             measurementDataTime={measurementDataTime}
             measurementRegion={measurementRegion}
+            freshnessStatus={freshnessMeta.status === "UNKNOWN" ? undefined : freshnessMeta.status}
+            freshnessDescription={freshnessMeta.description}
+            onRefreshData={freshnessMeta.needsRefresh ? handleFreshnessRefresh : undefined}
+            isRefreshing={isRefreshing}
             delay={1.1}
           />
         )}
@@ -460,6 +633,8 @@ export default function Home() {
                 ? "실내 놀이"
                 : "신나는 외출"
             }
+            summary={data.aiGuide?.summary}
+            reason={data.aiGuide?.threeReason?.[0]}
           />
         </div>
       )}
