@@ -277,7 +277,7 @@ test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반
   await expect(page.getByText('종로구 기준으로는 외출하기 좋아요')).toBeVisible();
 
   await page.getByTestId('datagrid-toggle').click();
-  await expect(page.getByText('12')).toBeVisible();
+  await expect(page.getByText('12', { exact: true })).toBeVisible();
 
   await page.getByTestId('settings-button').click();
   await page.getByRole('button', { name: /영아/ }).click();
