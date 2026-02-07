@@ -1,114 +1,122 @@
 # EPI-LOG API Guide
 
-This document outlines the external AI API integration and internal BFF endpoints used by the EPI-LOG application.
+This document describes the external AI API and internal BFF APIs used by EPI-LOG.
 
 ## AI Server API
 
-**Base URL**: `https://epi-log-ai.vercel.app`
+Base URL: `https://epi-log-ai.vercel.app`
 
-### 1. Give Advice
-Generates health advice based on air quality station data and user profile.
-
-- **Endpoint**: `POST /api/advice`
-- **Content-Type**: `application/json`
+### `POST /api/advice`
+Generates personalized health/activity guidance from station data and user profile.
 
 #### Request Body
-| Field | Type | Description | Required |
+| Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `stationName` | `string` | The name of the station (e.g., "강남구") | Yes |
-| `userProfile` | `object` | User's health profile information | Yes |
+| `stationName` | `string` | Yes | Air station name (e.g. `강남구`) |
+| `userProfile.ageGroup` | `string` | Yes | `infant` \| `toddler` \| `elementary_low` \| `elementary_high` \| `teen_adult` |
+| `userProfile.condition` | `string` | Yes | `general` \| `rhinitis` \| `asthma` \| `atopy` |
 
-**Example Request**:
-```json
-{
-  "stationName": "강남구",
-  "userProfile": {
-    "ageGroup": "elementary_low",
-    "condition": "asthma"
-  }
-}
-```
-
-#### Response Body
+#### Response (major fields)
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `decision` | `string` | The activity recommendation (e.g., "Good", "Bad") |
-| `reason` | `string` | A summary explanation of the advice |
-| `actionItems` | `string[]` | List of specific actionable advice items |
-| `references` | `string[]` | List of source documents or titles used for RAG |
-
-**Example Response**:
-```json
-{
-  "decision": "실외 활동 자제",
-  "reason": "미세먼지 농도가 매우 나쁩니다.",
-  "actionItems": [
-    "마스크를 착용하세요.",
-    "창문을 닫아주세요."
-  ],
-  "references": [
-    "Clean Air Guide 2024",
-    "WHO Guidelines"
-  ]
-}
-```
+| `decision` | `string` | Main recommendation sentence |
+| `reason` | `string` | Detailed rationale |
+| `three_reason` | `string[]` | 3-line summary reasons |
+| `detail_answer` | `string` | Expanded explanation |
+| `actionItems` | `string[]` | Action checklist |
+| `references` | `string[]` | RAG source list |
+| `pm25_value`, `pm10_value`, `o3_value`, `no2_value` | `number` | Numeric metrics (optional) |
 
 ---
 
 ## Internal BFF API
 
-### Daily Report
-Aggregates AirKorea data and AI advice for the frontend.
-
-- **Endpoint**: `POST /api/daily-report`
+### `POST /api/daily-report`
+Aggregates air data + AI guidance, applies decision normalization, and returns reliability metadata.
 
 #### Request Body
 ```json
 {
   "stationName": "강남구",
   "profile": {
-    "ageGroup": "child_low",
+    "ageGroup": "elementary_low",
     "condition": "rhinitis"
   }
 }
 ```
 
-#### Profile Mapping (BFF → AI)
-- Internal `ageGroup`: `infant` | `child_low` | `child_high` | `adult`
-- AI `ageGroup`: `infant` | `elementary_low` | `elementary_high` | `teen`
-- Internal `condition`: `none` | `rhinitis` | `asthma`
-- AI `condition`: `none` | `rhinitis` | `asthma`
+#### Profile mapping (BFF -> AI)
+- `condition`: `none` -> `general`
+- `rhinitis` -> `rhinitis`
+- `asthma` -> `asthma`
+- `atopy` -> `atopy`
 
 #### Response Structure
 ```json
 {
   "airQuality": {
-    "stationName": "string",
-    "grade": "string",
-    "value": "number",
-    "detail": "object"
+    "stationName": "강남구",
+    "grade": "BAD",
+    "pm25_value": 55,
+    "pm10_value": 88,
+    "o3_value": 0.07,
+    "no2_value": 0.04,
+    "temp": 22,
+    "humidity": 45,
+    "detail": {
+      "pm10": { "grade": 3, "value": 88 },
+      "pm25": { "grade": 3, "value": 55 },
+      "o3": { "value": 0.07 },
+      "no2": { "value": 0.04 }
+    }
   },
   "aiGuide": {
-    "summary": "string",
-    "detail": "string",
-    "activityRecommendation": "string",
-    "maskRecommendation": "string",
-    "actionItems": "string[]",
-    "references": "string[]"
+    "summary": "오늘은 실외 활동 가능해요",
+    "detail": "...",
+    "threeReason": ["..."],
+    "detailAnswer": "...",
+    "actionItems": ["..."],
+    "activityRecommendation": "...",
+    "maskRecommendation": "...",
+    "references": ["..."]
   },
-  "timestamp": "string"
+  "decisionSignals": {
+    "pm25Grade": 3,
+    "o3Grade": 2,
+    "adjustedRiskGrade": 3,
+    "finalGrade": "BAD",
+    "o3IsDominantRisk": false,
+    "o3OutingBanForced": false,
+    "infantMaskBanApplied": false,
+    "weatherAdjusted": false
+  },
+  "reliability": {
+    "status": "LIVE",
+    "label": "실시간 측정소 데이터",
+    "description": "현재 선택한 지역 기준의 최신 측정값을 반영했어요.",
+    "requestedStation": "강남구",
+    "resolvedStation": "강남구",
+    "triedStations": ["강남구"],
+    "updatedAt": "2026-02-07T01:23:45.000Z",
+    "aiStatus": "ok"
+  },
+  "timestamp": "2026-02-07T01:23:45.000Z"
 }
 ```
 
-#### Notes
-- AirKorea 응답은 UI 사용성을 위해 `grade`, `value`, `detail` 형태로 평탄화됩니다.
-- AI 서버 실패 시에도 `aiGuide` 폴백을 반환합니다.
-- AirKorea 실패 시에도 `airQuality` 폴백을 반환합니다.
+#### Runtime behavior
+- Air + AI are fetched in parallel with `Promise.allSettled`.
+- Partial failure returns degraded but render-safe payload.
+- O3 rule: when `BAD+`, action list force-appends `오후 2~5시 외출 금지`.
+- Infant rule: mask recommendation is overridden to `마스크 착용 금지(영아)`.
+- Weather adjustment: risk can be raised by temperature/humidity + profile condition.
 
-### Reverse Geocode
-Converts coordinates to administrative region names.
+#### External calls
+- `GET ${NEXT_PUBLIC_DATA_API_URL}/api/air-quality?stationName=...`
+- `POST ${NEXT_PUBLIC_AI_API_URL}/api/advice`
 
-- **Endpoint**: `POST /api/reverse-geocode`
+### `POST /api/reverse-geocode`
+Converts coordinates to display region + station candidate.
 
 #### Request Body
 ```json
@@ -118,7 +126,7 @@ Converts coordinates to administrative region names.
 }
 ```
 
-#### Response Structure
+#### Response
 ```json
 {
   "address": "서울특별시 강남구 역삼1동",
@@ -127,18 +135,18 @@ Converts coordinates to administrative region names.
 }
 ```
 
-#### Error Handling
-- `lat/lng` 누락 시 `400`
-- `KAKAO_REST_API_KEY` 누락 시 `500`
-- Kakao API 실패 시 `500`
+#### Errors
+- `400`: missing `lat` / `lng`
+- `500`: missing `KAKAO_REST_API_KEY`
+- `500`: Kakao API failure
 
 ---
 
 ## Environment Variables
 
-- `NEXT_PUBLIC_DATA_API_URL`: AirKorea 데이터 API URL
-- `NEXT_PUBLIC_AI_API_URL`: AI 서버 API URL
-- `KAKAO_REST_API_KEY`: Kakao 지도 REST API Key (서버용)
-- `NEXT_PUBLIC_KAKAO_JS_KEY`: Kakao JS SDK Key (클라이언트용)
-- `NEXT_PUBLIC_SITE_URL`: 배포 URL
-- `NEXT_PUBLIC_GA4_ID`: Google Analytics ID
+- `NEXT_PUBLIC_DATA_API_URL`
+- `NEXT_PUBLIC_AI_API_URL`
+- `KAKAO_REST_API_KEY`
+- `NEXT_PUBLIC_KAKAO_JS_KEY`
+- `NEXT_PUBLIC_SITE_URL`
+- `NEXT_PUBLIC_GA_ID` or `NEXT_PUBLIC_GA4_ID`

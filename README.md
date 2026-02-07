@@ -119,9 +119,14 @@ sequenceDiagram
 {
   "airQuality": {
     "stationName": "강남구",
-    "grade": "GOOD",
-    "value": 32,
-    "detail": { "pm10": { "grade": 1, "value": 32 }, "pm25": { "grade": 1, "value": 16 } }
+    "grade": "BAD",
+    "pm25_value": 55,
+    "pm10_value": 88,
+    "o3_value": 0.07,
+    "no2_value": 0.04,
+    "temp": 22,
+    "humidity": 45,
+    "detail": { "pm10": { "grade": 3, "value": 88 }, "pm25": { "grade": 3, "value": 55 } }
   },
   "aiGuide": {
     "summary": "실외 활동 가능합니다",
@@ -131,20 +136,33 @@ sequenceDiagram
     "actionItems": ["충분한 수분 섭취", "야외 활동 권장"],
     "references": ["WHO Guidelines 2024"]
   },
+  "decisionSignals": {
+    "pm25Grade": 3,
+    "o3Grade": 2,
+    "adjustedRiskGrade": 3,
+    "finalGrade": "BAD"
+  },
+  "reliability": {
+    "status": "LIVE",
+    "label": "실시간 측정소 데이터",
+    "resolvedStation": "강남구"
+  },
   "timestamp": "2026-01-28T12:34:56.789Z"
 }
 ```
 
 **특이사항**
 - 내부 프로필 스키마를 AI 서버 스키마로 매핑하여 전달합니다.
-- AirKorea 응답을 UI 친화 구조로 평탄화(grade/value/detail)합니다.
-- 외부 API 실패 시에도 `airQuality`/`aiGuide` 폴백을 제공해 UI를 보호합니다.
+- AirKorea 응답을 UI 친화 구조로 평탄화(grade/detail + 주요 수치)합니다.
+- Air/AI를 병렬 호출(`Promise.allSettled`)하고 부분 실패 시에도 degraded 응답으로 UI를 보호합니다.
+- O3 규칙(2~5시), 영아 마스크 금지, 온습도 보정 신호(`decisionSignals`)를 포함합니다.
+- 데이터 신뢰성 메타(`reliability`)를 함께 반환합니다.
 
 **에러 처리**
 - 내부 오류 시 `500`
 
 **외부 호출**
-- `GET ${NEXT_PUBLIC_DATA_API_URL}/api/stations?stationName=...`
+- `GET ${NEXT_PUBLIC_DATA_API_URL}/api/air-quality?stationName=...`
 - `POST ${NEXT_PUBLIC_AI_API_URL}/api/advice`
 
 ---
