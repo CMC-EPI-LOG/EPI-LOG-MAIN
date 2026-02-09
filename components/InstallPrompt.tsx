@@ -4,50 +4,67 @@ import { useEffect, useState } from 'react';
 import { Share, PlusSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+interface NavigatorWithStandalone extends Navigator {
+  // iOS Safari exposes this when launched from the home screen.
+  standalone?: boolean;
+}
+
+// Not in TS lib.dom yet.
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
 export default function InstallPrompt() {
-  const [isIOS, setIsIOS] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const userAgent =
+    typeof window !== 'undefined' ? window.navigator.userAgent.toLowerCase() : '';
+  const isKakaoTalkInApp = userAgent.includes('kakaotalk');
+  const isIOS = /iphone|ipad|ipod/.test(userAgent);
+
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(
+    null,
+  );
+  const [isVisible, setIsVisible] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const ua = window.navigator.userAgent.toLowerCase();
+
+    // Temporarily disable install coach banner in KakaoTalk in-app browser.
+    // KakaoTalk's in-app browser typically doesn't support the expected PWA install UX
+    // (and the iOS "Add to Home Screen" guidance can be misleading), so showing this can
+    // become noise during Kakao share flows.
+    if (ua.includes('kakaotalk')) return false;
+
+    const isIosDevice = /iphone|ipad|ipod/.test(ua);
+    const isStandalone = (window.navigator as NavigatorWithStandalone).standalone === true;
+    return isIosDevice && !isStandalone;
+  });
 
   useEffect(() => {
-    // Detect iOS
-    const userAgent = window.navigator.userAgent.toLowerCase();
-    const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
-    setIsIOS(isIosDevice);
-
     // Detect Android/Chrome Install Prompt
-    const handleBeforeInstallPrompt = (e: any) => {
+    if (isKakaoTalkInApp) return;
+
+    const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
       setIsVisible(true);
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    // Show iOS prompt if standalone is false (roughly)
-    if (isIosDevice && !(window.navigator as any).standalone) {
-       // Only show after some delay or interaction in a real app, 
-       // but for MVP we show it if not installed.
-       // However, to be less intrusive, let's show it only if user engages or based on timer.
-       // For now, simple logic:
-       setIsVisible(true);
-    }
-
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
-  }, []);
+  }, [isKakaoTalkInApp]);
 
-  const handleAndroidInstall = () => {
+  const handleAndroidInstall = async () => {
     if (deferredPrompt) {
-      deferredPrompt.prompt();
-      deferredPrompt.userChoice.then((choiceResult: any) => {
-        if (choiceResult.outcome === 'accepted') {
-          console.log('User accepted the install prompt');
-        }
-        setDeferredPrompt(null);
-        setIsVisible(false);
-      });
+      await deferredPrompt.prompt();
+      const choiceResult = await deferredPrompt.userChoice;
+      if (choiceResult.outcome === 'accepted') {
+        console.log('User accepted the install prompt');
+      }
+      setDeferredPrompt(null);
+      setIsVisible(false);
     }
   };
 
