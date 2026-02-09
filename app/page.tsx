@@ -17,57 +17,28 @@ import toast from "react-hot-toast";
 import { getCharacterPath } from "@/lib/characterUtils";
 import { getBackgroundColor } from "@/lib/colorUtils";
 import { setCoreEventContext, trackCoreEvent } from "@/lib/analytics/ga";
+import {
+  deriveDecisionSignals,
+  type AirQualityView,
+  type AiGuideView,
+  type DecisionSignals,
+  type ProfileInput,
+  type ReliabilityMeta,
+} from "@/lib/dailyReportDecision";
 
 const REPORT_TIMEOUT_MS = 25000;
 const FRESHNESS_DELAYED_MINUTES = 60;
 const FRESHNESS_STALE_MINUTES = 90;
+const AIR_LATEST_POLL_INTERVAL_MS = 60_000;
 
 type LoadErrorKind = "timeout" | "fetch" | null;
 type FetchCause = "initial" | "location" | "profile" | "retry";
 
 interface DailyReportData {
-  airQuality?: {
-    sidoName?: string | null;
-    stationName?: string;
-    dataTime?: string | null;
-    grade?: string;
-    pm25_value?: number;
-    pm10_value?: number;
-    o3_value?: number;
-    temp?: number;
-    humidity?: number;
-    no2_value?: number;
-  };
-  aiGuide?: {
-    summary?: string;
-    detail?: string;
-    threeReason?: string[];
-    detailAnswer?: string;
-    actionItems?: string[];
-    maskRecommendation?: string;
-    activityRecommendation?: string;
-  };
-  decisionSignals?: {
-    pm25Grade?: number;
-    o3Grade?: number;
-    adjustedRiskGrade?: number;
-    finalGrade?: "GOOD" | "NORMAL" | "BAD" | "VERY_BAD";
-    o3IsDominantRisk?: boolean;
-    o3OutingBanForced?: boolean;
-    infantMaskBanApplied?: boolean;
-    weatherAdjusted?: boolean;
-    weatherAdjustmentReason?: string;
-  };
-  reliability?: {
-    status?: "LIVE" | "STATION_FALLBACK" | "DEGRADED";
-    label?: string;
-    description?: string;
-    requestedStation?: string;
-    resolvedStation?: string;
-    triedStations?: string[];
-    updatedAt?: string;
-    aiStatus?: "ok" | "failed";
-  };
+  airQuality?: AirQualityView;
+  aiGuide?: AiGuideView;
+  decisionSignals?: DecisionSignals;
+  reliability?: ReliabilityMeta;
   timestamp?: string;
 }
 
@@ -104,6 +75,7 @@ export default function Home() {
   const activeFetchCauseRef = useRef<FetchCause>("initial");
   const loadingStartedAtRef = useRef<number | null>(null);
   const lastFallbackExposeKeyRef = useRef<string | null>(null);
+  const airLatestInFlightRef = useRef(false);
 
   const fetchData = useCallback(async (
     currentLocation: typeof location,
@@ -180,6 +152,73 @@ export default function Home() {
     }
   }, [data]);
 
+  const refreshAirLatest = useCallback(async () => {
+    const stationName = location.stationName?.trim();
+    if (!stationName) return;
+    if (airLatestInFlightRef.current) return;
+    if (activeControllerRef.current) return; // Avoid overlapping with full daily-report fetch.
+
+    airLatestInFlightRef.current = true;
+    try {
+      const res = await fetch(
+        `/api/air-quality-latest?stationName=${encodeURIComponent(stationName)}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) return;
+
+      const latest = (await res.json()) as {
+        airQuality?: AirQualityView;
+        reliability?: ReliabilityMeta;
+        timestamp?: string;
+      };
+      const latestAirQuality = latest.airQuality;
+      if (!latestAirQuality) return;
+
+      setData((prev) => {
+        if (!prev) return prev;
+
+        // Preserve existing AI payload but re-derive the decision signals
+        // so that temp/humidity and new pollutant values are reflected in the UI.
+        const baseGuide: AiGuideView = {
+          summary: prev.aiGuide?.summary || "확인 중...",
+          detail: prev.aiGuide?.detail || "",
+          threeReason: prev.aiGuide?.threeReason || [],
+          detailAnswer: prev.aiGuide?.detailAnswer || prev.aiGuide?.detail || "",
+          actionItems: prev.aiGuide?.actionItems || [],
+          activityRecommendation: prev.aiGuide?.activityRecommendation || "확인 필요",
+          maskRecommendation: prev.aiGuide?.maskRecommendation || "확인 필요",
+          references: prev.aiGuide?.references || [],
+        };
+
+        const profileForDecision: ProfileInput = profile
+          ? { ageGroup: profile.ageGroup, condition: profile.condition }
+          : { ageGroup: "elementary_low", condition: "none" };
+
+        const derived = deriveDecisionSignals(
+          latestAirQuality,
+          baseGuide,
+          profileForDecision,
+        );
+
+        return {
+          ...prev,
+          airQuality: derived.airData,
+          aiGuide: {
+            ...prev.aiGuide,
+            ...derived.aiGuide,
+          },
+          decisionSignals: derived.decisionSignals,
+          reliability: latest.reliability || prev.reliability,
+          timestamp: latest.timestamp || prev.timestamp,
+        };
+      });
+    } catch (error) {
+      console.error("[UI] Air latest refresh failed:", error);
+    } finally {
+      airLatestInFlightRef.current = false;
+    }
+  }, [location.stationName, profile]);
+
   useEffect(() => {
     return () => {
       activeControllerRef.current?.abort(
@@ -187,6 +226,30 @@ export default function Home() {
       );
     };
   }, []);
+
+  useEffect(() => {
+    if (!location.stationName) return;
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      refreshAirLatest();
+    }, AIR_LATEST_POLL_INTERVAL_MS);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshAirLatest();
+      }
+    };
+
+    window.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleVisibility);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleVisibility);
+    };
+  }, [location.stationName, refreshAirLatest]);
 
   const updateLocationByCoords = async (lat: number, lng: number) => {
     try {

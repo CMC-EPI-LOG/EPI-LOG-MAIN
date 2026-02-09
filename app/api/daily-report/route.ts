@@ -22,6 +22,8 @@ const STATION_HINTS: Record<string, string[]> = {
   세종특별자치시: ['보람동', '아름동', '한솔동', '조치원읍'],
 };
 
+export const runtime = 'nodejs';
+
 interface ProfileInput {
   ageGroup?: string;
   condition?: string;
@@ -44,6 +46,8 @@ interface AirQualityRaw {
   so2_grade?: string;
   so2_value?: number;
   temp?: number;
+  // Some data sources store temperature as `temperature` instead of `temp`.
+  temperature?: number;
   humidity?: number;
 }
 
@@ -124,6 +128,15 @@ function normalizeDongName(name: string) {
   return name.replace(/^(.+?)\d+동$/, '$1동');
 }
 
+function normalizeSubregionName(name: string) {
+  // Kakao depth3 often includes numeric suffixes like `역삼1동`, `효자동1가`.
+  // Normalize to maximize DB hit rate.
+  return name
+    .replace(/^(.+?)\d+동$/, '$1동')
+    .replace(/^(.+?)\d+가$/, '$1')
+    .replace(/^(.+?)\d+리$/, '$1리');
+}
+
 function buildStationCandidates(rawStation: string): string[] {
   const cleaned = rawStation.trim().replace(/\s+/g, ' ');
   const seen = new Set<string>();
@@ -140,11 +153,13 @@ function buildStationCandidates(rawStation: string): string[] {
   add(cleaned);
   add(cleaned.replace(/\s+/g, ''));
   add(normalizeDongName(cleaned));
+  add(normalizeSubregionName(cleaned));
 
   const tokens = cleaned.split(' ').filter(Boolean);
   for (const token of tokens) {
     add(token);
     add(normalizeDongName(token));
+    add(normalizeSubregionName(token));
   }
 
   if (tokens.length >= 2) {
@@ -279,7 +294,7 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
     no2_value: raw.no2_value,
     co_value: raw.co_value,
     so2_value: raw.so2_value,
-    temp: raw.temp ?? FALLBACK_TEMP,
+    temp: raw.temp ?? raw.temperature ?? FALLBACK_TEMP,
     humidity: raw.humidity ?? FALLBACK_HUMIDITY,
     detail: {
       pm10: { grade: pm10Grade, value: raw.pm10_value },
