@@ -7,6 +7,7 @@ export const runtime = 'nodejs';
 type LogBody = {
   session_id?: string;
   source?: string;
+  shared_by?: string;
   event_name?: string;
   metadata?: Record<string, unknown>;
 };
@@ -21,6 +22,7 @@ export async function POST(request: Request) {
 
   const session_id = typeof body.session_id === 'string' ? body.session_id : '';
   const source = typeof body.source === 'string' ? body.source : undefined;
+  const shared_by = typeof body.shared_by === 'string' ? body.shared_by : undefined;
   const event_name = typeof body.event_name === 'string' ? body.event_name : '';
   const metadata = body.metadata && typeof body.metadata === 'object' ? body.metadata : {};
 
@@ -40,6 +42,8 @@ export async function POST(request: Request) {
         // Attribution should be stable per session.
         // Save `source` on first insert; don't overwrite on subsequent events.
         source: source ?? null,
+        // Share attribution: stable per session; the child session stores the share token.
+        shared_by: shared_by ?? null,
         created_at: new Date(),
       },
       $push: {

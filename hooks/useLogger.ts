@@ -4,6 +4,7 @@ import { useCallback, useEffect } from "react";
 
 const SESSION_KEY = "session_id";
 const SOURCE_KEY = "source";
+const SHARED_BY_KEY = "shared_by";
 const ADDRESS_CONSENT_KEY = "address_consent";
 const INIT_KEY = "__epi_log_logger_init_v1";
 const SESSION_START_KEY = "__epi_log_session_start_ts_v1";
@@ -31,6 +32,16 @@ function readRefFromUrl() {
     const url = new URL(window.location.href);
     const ref = url.searchParams.get("ref");
     return ref?.trim() ? ref.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function readSharedByFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    const sharedBy = url.searchParams.get("shared_by");
+    return sharedBy?.trim() ? sharedBy.trim() : null;
   } catch {
     return null;
   }
@@ -65,11 +76,12 @@ export function useLogger() {
     try {
       const session_id = getOrCreateSessionId();
       const source = localStorage.getItem(SOURCE_KEY) || undefined;
+      const shared_by = localStorage.getItem(SHARED_BY_KEY) || undefined;
 
       await fetch("/api/log", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ session_id, source, event_name, metadata }),
+        body: JSON.stringify({ session_id, source, shared_by, event_name, metadata }),
       });
     } catch (err) {
       console.error("[useLogger] logEvent failed:", err);
@@ -102,6 +114,12 @@ export function useLogger() {
       const ref = readRefFromUrl();
       if (ref) localStorage.setItem(SOURCE_KEY, ref);
 
+      // Capture share attribution once per browser profile (don't overwrite).
+      const sharedBy = readSharedByFromUrl();
+      if (sharedBy && !localStorage.getItem(SHARED_BY_KEY)) {
+        localStorage.setItem(SHARED_BY_KEY, sharedBy);
+      }
+
       void logEvent("landing_view");
     } catch (err) {
       console.error("[useLogger] init failed:", err);
@@ -122,11 +140,13 @@ export function useLogger() {
 
           const session_id = getOrCreateSessionId();
           const source = localStorage.getItem(SOURCE_KEY) || undefined;
+          const shared_by = localStorage.getItem(SHARED_BY_KEY) || undefined;
           const duration_ms = Math.max(0, Date.now() - startTs);
 
           sendBeaconLog({
             session_id,
             source,
+            shared_by,
             event_name: "session_end",
             metadata: {
               duration_ms,

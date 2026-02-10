@@ -22,27 +22,43 @@ function toSingleLine(value?: string) {
     .trim();
 }
 
+function createShareId() {
+  try {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // ignore
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 export default function ShareButton({ nickname, region, action, summary, reason }: ShareButtonProps) {
   const { logEvent } = useLogger();
 
   const handleShare = async () => {
     const canNativeShare = typeof (navigator as any).share === 'function';
     const shareMethod = canNativeShare ? 'native' : 'clipboard';
-    void logEvent('share_click', { method: shareMethod });
+    const share_id = createShareId();
+    void logEvent('share_link_created', { share_id });
+    void logEvent('share_click', { method: shareMethod, share_id });
 
     const decisionLine = toSingleLine(action || summary || '오늘 활동 가이드를 확인해보세요');
     const reasonLine = toSingleLine(reason || '');
 
+    const shareUrl = new URL(window.location.href);
+    shareUrl.searchParams.set('shared_by', share_id);
+
     const shareData = {
       title: `${nickname || '우리 아이'} 오늘 공기질 가이드`,
       text: `${region || '우리 동네'} 기준 · ${decisionLine}${reasonLine ? ` · 이유: ${reasonLine}` : ''}`,
-      url: window.location.href,
+      url: shareUrl.toString(),
     };
 
     if (canNativeShare) {
       try {
         await (navigator as any).share(shareData);
-        void logEvent('share_result', { method: 'native', result: 'success' });
+        void logEvent('share_result', { method: 'native', result: 'success', share_id });
         trackCoreEvent('share_clicked', {
           station_name: region || 'unknown',
           recommended_action: action || summary || 'unknown',
@@ -51,7 +67,7 @@ export default function ShareButton({ nickname, region, action, summary, reason 
         });
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') {
-          void logEvent('share_result', { method: 'native', result: 'cancel' });
+          void logEvent('share_result', { method: 'native', result: 'cancel', share_id });
           trackCoreEvent('share_clicked', {
             station_name: region || 'unknown',
             recommended_action: action || summary || 'unknown',
@@ -60,7 +76,7 @@ export default function ShareButton({ nickname, region, action, summary, reason 
           });
           return;
         }
-        void logEvent('share_result', { method: 'native', result: 'error' });
+        void logEvent('share_result', { method: 'native', result: 'error', share_id });
         trackCoreEvent('share_clicked', {
           station_name: region || 'unknown',
           recommended_action: action || summary || 'unknown',
@@ -72,8 +88,8 @@ export default function ShareButton({ nickname, region, action, summary, reason 
       }
     } else {
       try {
-        await navigator.clipboard.writeText(window.location.href);
-        void logEvent('share_result', { method: 'clipboard', result: 'success' });
+        await navigator.clipboard.writeText(shareUrl.toString());
+        void logEvent('share_result', { method: 'clipboard', result: 'success', share_id });
         trackCoreEvent('share_clicked', {
           station_name: region || 'unknown',
           recommended_action: action || summary || 'unknown',
@@ -82,7 +98,7 @@ export default function ShareButton({ nickname, region, action, summary, reason 
         });
         toast.success('링크가 복사되었습니다!');
       } catch (err) {
-        void logEvent('share_result', { method: 'clipboard', result: 'error' });
+        void logEvent('share_result', { method: 'clipboard', result: 'error', share_id });
         trackCoreEvent('share_clicked', {
           station_name: region || 'unknown',
           recommended_action: action || summary || 'unknown',
