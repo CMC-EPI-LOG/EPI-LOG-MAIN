@@ -34,6 +34,8 @@ function createShareId() {
 }
 
 export default function ShareButton({ nickname, region, action, summary, reason }: ShareButtonProps) {
+  // Apps in Toss policy: don't send users outside of the miniapp environment.
+  if (process.env.NEXT_PUBLIC_PLATFORM === 'TOSS') return null;
   const { logEvent } = useLogger();
 
   const handleShare = async () => {

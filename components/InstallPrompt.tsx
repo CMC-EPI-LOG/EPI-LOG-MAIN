@@ -16,6 +16,8 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export default function InstallPrompt() {
+  // Apps in Toss policy: do not encourage installing a separate app/PWA.
+  if (process.env.NEXT_PUBLIC_PLATFORM === 'TOSS') return null;
   const userAgent =
     typeof window !== 'undefined' ? window.navigator.userAgent.toLowerCase() : '';
   const isKakaoTalkInApp = userAgent.includes('kakaotalk');
