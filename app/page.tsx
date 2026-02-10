@@ -63,7 +63,7 @@ function parseKstDataTimeToEpoch(raw?: string | null): number | null {
 export default function Home() {
   const { location, profile, isOnboarded, setLocation, setProfile } =
     useUserStore();
-  const { logAddressConsent } = useLogger();
+  const { logEvent, logAddressConsent } = useLogger();
   const [data, setData] = useState<DailyReportData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -330,6 +330,11 @@ export default function Home() {
   const handleProfileSubmit = (newProfile: UserProfile) => {
     setProfile(newProfile);
     setIsModalOpen(false);
+    // Avoid storing PII like nickname; keep only coarse settings.
+    void logEvent("profile_changed", {
+      age_group: newProfile.ageGroup,
+      condition: newProfile.condition,
+    });
     trackCoreEvent("profile_changed", {
       age_group: newProfile.ageGroup,
       condition: newProfile.condition,
