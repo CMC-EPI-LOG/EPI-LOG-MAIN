@@ -37,6 +37,8 @@ export async function POST(request: Request) {
     const update: Record<string, unknown> = {
       $setOnInsert: {
         session_id,
+        // Attribution should be stable per session.
+        // Save `source` on first insert; don't overwrite on subsequent events.
         source: source ?? null,
         created_at: new Date(),
       },
@@ -49,10 +51,6 @@ export async function POST(request: Request) {
       },
     };
 
-    if (source) {
-      update.$set = { source };
-    }
-
     await UserLog.findOneAndUpdate({ session_id }, update, {
       upsert: true,
       setDefaultsOnInsert: true,
@@ -64,4 +62,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false }, { status: 500 });
   }
 }
-
