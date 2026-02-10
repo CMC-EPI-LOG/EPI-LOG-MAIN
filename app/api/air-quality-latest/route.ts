@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { buildReliabilityMeta, type AirFetchResult } from '@/lib/dailyReportDecision';
+import { corsHeaders } from '@/lib/cors';
 
 const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai.vercel.app';
 const FALLBACK_TEMP = 22;
@@ -248,11 +249,18 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const stationName = url.searchParams.get('stationName')?.trim();
   if (!stationName) {
-    return NextResponse.json({ error: 'Missing stationName' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Missing stationName' },
+      { status: 400, headers: corsHeaders() },
+    );
   }
 
   const airFetch = await fetchAirDataWithStationFallback(stationName);
@@ -268,6 +276,7 @@ export async function GET(request: Request) {
     {
       headers: {
         'Cache-Control': 'no-store, max-age=0',
+        ...corsHeaders(),
       },
     },
   );

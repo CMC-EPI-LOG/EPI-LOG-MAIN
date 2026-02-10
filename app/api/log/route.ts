@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import { dbConnect } from '@/lib/mongoose';
 import { UserLog } from '@/models/UserLog';
+import { corsHeaders } from '@/lib/cors';
 
 export const runtime = 'nodejs';
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+}
 
 type LogBody = {
   session_id?: string;
@@ -29,7 +34,7 @@ export async function POST(request: Request) {
   if (!session_id || !event_name) {
     return NextResponse.json(
       { ok: false, error: 'session_id and event_name are required' },
-      { status: 400 },
+      { status: 400, headers: corsHeaders() },
     );
   }
 
@@ -60,9 +65,9 @@ export async function POST(request: Request) {
       setDefaultsOnInsert: true,
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { headers: corsHeaders() });
   } catch (err) {
     console.error('[api/log] failed:', err);
-    return NextResponse.json({ ok: false }, { status: 500 });
+    return NextResponse.json({ ok: false }, { status: 500, headers: corsHeaders() });
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { buildReliabilityMeta, deriveDecisionSignals } from '@/lib/dailyReportDecision';
+import { corsHeaders } from '@/lib/cors';
 
 const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai.vercel.app';
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
@@ -23,6 +24,10 @@ const STATION_HINTS: Record<string, string[]> = {
 };
 
 export const runtime = 'nodejs';
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+}
 
 interface ProfileInput {
   ageGroup?: string;
@@ -477,7 +482,7 @@ export async function POST(request: Request) {
       decisionSignals: derived.decisionSignals,
       reliability,
       timestamp: new Date().toISOString(),
-    });
+    }, { headers: corsHeaders() });
   } catch (error) {
     console.error('[BFF] Internal Server Error:', error);
     Sentry.withScope((scope) => {
@@ -485,6 +490,9 @@ export async function POST(request: Request) {
       scope.setLevel('error');
       Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
     });
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal Server Error' },
+      { status: 500, headers: corsHeaders() },
+    );
   }
 }
