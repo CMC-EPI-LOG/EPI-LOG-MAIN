@@ -11,6 +11,7 @@ import InstallPrompt from "@/components/InstallPrompt";
 import LocationHeader from "@/components/LocationHeader";
 import ShareButton from "@/components/ShareButton";
 import ActionChecklistCard from "@/components/ActionChecklistCard";
+import AiNotice from "@/components/AiNotice";
 import { Activity, Loader2, Settings, Shield } from "lucide-react";
 import toast from "react-hot-toast";
 import { getCharacterPath } from "@/lib/characterUtils";
@@ -590,6 +591,8 @@ export default function Home() {
           <Settings size={24} />
         </button>
       </header>
+
+      <AiNotice />
 
       {isRefreshing && (
         <div className="max-w-2xl mx-auto mb-3">
