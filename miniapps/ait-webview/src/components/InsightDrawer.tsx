@@ -1,0 +1,263 @@
+'use client';
+
+import { motion } from 'framer-motion';
+import { useState } from 'react';
+import { ChevronDown, Loader2, RotateCw } from 'lucide-react';
+import { parseHighlightedText } from '@/lib/textUtils';
+import { trackCoreEvent } from '@/lib/analytics/ga';
+import { useLogger } from '@/hooks/useLogger';
+
+interface InsightDrawerProps {
+  threeReason?: string[];
+  detailAnswer?: string;
+  reasoning?: string;
+  reliabilityLabel?: string;
+  reliabilityDescription?: string;
+  reliabilityUpdatedAt?: string;
+  measurementDataTime?: string;
+  measurementRegion?: string;
+  decisionSignalChips?: string[];
+  freshnessStatus?: 'FRESH' | 'DELAYED' | 'STALE';
+  freshnessDescription?: string;
+  onRefreshData?: () => void;
+  isRefreshing?: boolean;
+  delay?: number;
+}
+
+export default function InsightDrawer({
+  threeReason,
+  detailAnswer,
+  reasoning,
+  reliabilityLabel,
+  reliabilityDescription,
+  reliabilityUpdatedAt,
+  measurementDataTime,
+  measurementRegion,
+  decisionSignalChips,
+  freshnessStatus,
+  freshnessDescription,
+  onRefreshData,
+  isRefreshing = false,
+  delay = 0,
+}: InsightDrawerProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isDetailExpanded, setIsDetailExpanded] = useState(false);
+  const [feedback, setFeedback] = useState<'helpful' | 'not_helpful' | null>(null);
+  const { logEvent } = useLogger();
+
+  const hasSummary = Boolean(threeReason && threeReason.length > 0);
+  const displayDetail = detailAnswer || reasoning || 'AI 선생님이 잠시 쉬고 있어요.';
+  const isDataDelayed = freshnessStatus === 'DELAYED' || freshnessStatus === 'STALE';
+  const freshnessBadgeClass =
+    freshnessStatus === 'STALE'
+      ? 'border-red-200 bg-red-50 text-red-700'
+      : 'border-amber-200 bg-amber-50 text-amber-700';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.4 }}
+      className="col-span-2 bento-card overflow-hidden"
+    >
+      <button
+        onClick={() => {
+          if (!isOpen) {
+            trackCoreEvent('insight_opened', { ui_section: 'insight_drawer' });
+          }
+          setIsOpen(!isOpen);
+        }}
+        className="flex w-full items-center justify-between p-5 transition-colors hover:bg-gray-50 md:p-6"
+        aria-expanded={isOpen}
+        data-testid="insight-toggle"
+      >
+        <div className="flex items-center gap-2.5">
+          <span className="text-xl">🤔</span>
+          <h3 className="text-lg font-black md:text-xl">왜 그런가요?</h3>
+        </div>
+        <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.3 }}>
+          <ChevronDown size={20} strokeWidth={2.5} />
+        </motion.div>
+      </button>
+
+      <motion.div
+        initial={false}
+        animate={{
+          height: isOpen ? 'auto' : 0,
+          opacity: isOpen ? 1 : 0,
+        }}
+        transition={{ duration: 0.3 }}
+        className="overflow-hidden"
+      >
+        <div className="space-y-4 border-t border-gray-100 px-5 pb-5 pt-4 md:px-6 md:pb-6">
+          <div className="flex flex-wrap items-center gap-2">
+            {reliabilityLabel && (
+              <div
+                className="inline-flex flex-wrap items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-[11px] font-semibold text-gray-600"
+                title={reliabilityDescription}
+                data-testid="insight-reliability-badge"
+              >
+                <span>{reliabilityLabel}</span>
+                {reliabilityUpdatedAt && <span>· {reliabilityUpdatedAt} 기준</span>}
+              </div>
+            )}
+            {(measurementDataTime || measurementRegion) && (
+              <div
+                className="inline-flex flex-wrap items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-[11px] font-semibold text-gray-600"
+                data-testid="insight-measurement-badge"
+              >
+                {measurementDataTime && <span>측정 {measurementDataTime}</span>}
+                {measurementRegion && <span>· {measurementRegion}</span>}
+              </div>
+            )}
+            {isDataDelayed && (
+              <div
+                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${freshnessBadgeClass}`}
+                title={freshnessDescription}
+                data-testid="insight-freshness-badge"
+              >
+                <span>지연 데이터</span>
+              </div>
+            )}
+            {isDataDelayed && onRefreshData && (
+              <button
+                type="button"
+                onClick={onRefreshData}
+                className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1 text-[11px] font-semibold text-gray-700 transition-colors hover:bg-gray-100"
+                data-testid="insight-refresh-button"
+              >
+                {isRefreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+                자동 재조회
+              </button>
+            )}
+          </div>
+
+          {!!decisionSignalChips?.length && (
+            <div className="flex flex-wrap items-center gap-2" data-testid="insight-decision-chips">
+              {decisionSignalChips.map((chip) => (
+                <span
+                  key={chip}
+                  className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700"
+                >
+                  {chip}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {hasSummary && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="card-muted p-4"
+            >
+              <h4 className="mb-2 flex items-center gap-2 text-sm font-black text-gray-700">
+                <span>💡</span>
+                <span>AI 선생님의 3줄 요약</span>
+              </h4>
+              <ul className="space-y-2" data-testid="insight-summary-list">
+                {threeReason?.map((reason, index) => (
+                  <li key={index} className="flex gap-2 text-sm leading-6">
+                    <span className="mt-0.5 font-black text-black">•</span>
+                    <p className="flex-1 text-gray-800">{parseHighlightedText(reason)}</p>
+                  </li>
+                ))}
+              </ul>
+            </motion.div>
+          )}
+
+          {displayDetail && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold text-gray-600">상세 설명</p>
+                <button
+                  onClick={() => {
+                    if (!isDetailExpanded) {
+                      trackCoreEvent('detail_expanded', { ui_section: 'insight_drawer' });
+                    }
+                    setIsDetailExpanded(!isDetailExpanded);
+                  }}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-100"
+                  aria-expanded={isDetailExpanded}
+                  data-testid="insight-detail-toggle"
+                >
+                  자세히 보기
+                  <span className="text-[10px]">{isDetailExpanded ? '▲' : '▽'}</span>
+                </button>
+              </div>
+              <motion.div
+                initial={false}
+                animate={{
+                  height: isDetailExpanded ? 'auto' : 0,
+                  opacity: isDetailExpanded ? 1 : 0,
+                }}
+                transition={{ duration: 0.25 }}
+                className="overflow-hidden"
+              >
+                <p
+                  className="text-sm leading-7 text-gray-700"
+                  data-testid="insight-detail-content"
+                >
+                  {parseHighlightedText(displayDetail)}
+                </p>
+              </motion.div>
+            </div>
+          )}
+
+          <div className="rounded-lg border border-gray-200 bg-white p-3" data-testid="insight-voc-feedback">
+            <div className="mb-2 text-xs font-semibold text-gray-600">이 설명이 도움이 되었나요?</div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedback('helpful');
+                  void logEvent('voc_feedback_submitted', {
+                    ui_section: 'insight_drawer',
+                    feedback_type: 'helpful',
+                  });
+                  trackCoreEvent('voc_feedback_submitted', {
+                    ui_section: 'insight_drawer',
+                    feedback_type: 'helpful',
+                  });
+                }}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  feedback === 'helpful'
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+                aria-pressed={feedback === 'helpful'}
+                data-testid="insight-feedback-helpful"
+              >
+                👍 도움됐어요
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedback('not_helpful');
+                  void logEvent('voc_feedback_submitted', {
+                    ui_section: 'insight_drawer',
+                    feedback_type: 'not_helpful',
+                  });
+                  trackCoreEvent('voc_feedback_submitted', {
+                    ui_section: 'insight_drawer',
+                    feedback_type: 'not_helpful',
+                  });
+                }}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  feedback === 'not_helpful'
+                    ? 'border-orange-300 bg-orange-50 text-orange-700'
+                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+                aria-pressed={feedback === 'not_helpful'}
+                data-testid="insight-feedback-not-helpful"
+              >
+                👎 아쉬워요
+              </button>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}

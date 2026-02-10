@@ -1,18 +1,29 @@
 import { NextResponse } from 'next/server';
+import { corsHeaders } from '@/lib/cors';
 
 const KAKAO_REST_API_KEY = process.env.KAKAO_REST_API_KEY;
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+}
 
 export async function POST(request: Request) {
   try {
     const { lat, lng } = await request.json();
 
     if (!lat || !lng) {
-      return NextResponse.json({ error: 'Latitude and Longitude are required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Latitude and Longitude are required' },
+        { status: 400, headers: corsHeaders() },
+      );
     }
 
     if (!KAKAO_REST_API_KEY) {
       console.error('KAKAO_REST_API_KEY is missing');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Server configuration error' },
+        { status: 500, headers: corsHeaders() },
+      );
     }
 
     const response = await fetch(
@@ -42,7 +53,10 @@ export async function POST(request: Request) {
     const region = data.documents[0];
     
     if (!region) {
-         return NextResponse.json({ error: 'No results found' }, { status: 404 });
+         return NextResponse.json(
+           { error: 'No results found' },
+           { status: 404, headers: corsHeaders() },
+         );
     }
     
     const depth2 = (region.region_2depth_name || '').trim();
@@ -54,10 +68,13 @@ export async function POST(request: Request) {
       regionName: depth3 || depth2, // 역삼1동 (없으면 강남구)
       // 2depth만 쓰면 세종시처럼 광역 단위로 고정 템플릿 응답이 나올 수 있어 3depth를 함께 전달
       stationCandidate,
-    });
+    }, { headers: corsHeaders() });
 
   } catch (error) {
     console.error('Reverse Geocode Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal Server Error' },
+      { status: 500, headers: corsHeaders() },
+    );
   }
 }
