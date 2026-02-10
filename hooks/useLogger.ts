@@ -4,6 +4,8 @@ import { useCallback, useEffect } from "react";
 
 const SESSION_KEY = "session_id";
 const SOURCE_KEY = "source";
+const ADDRESS_CONSENT_KEY = "address_consent";
+const INIT_KEY = "__epi_log_logger_init_v1";
 
 function createSessionId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -48,8 +50,27 @@ export function useLogger() {
     }
   }, []);
 
+  const logAddressConsent = useCallback(
+    async (agreed: boolean) => {
+      try {
+        const next = agreed ? "true" : "false";
+        const prev = localStorage.getItem(ADDRESS_CONSENT_KEY);
+        if (prev === next) return;
+
+        localStorage.setItem(ADDRESS_CONSENT_KEY, next);
+        await logEvent("address_consent", { agreed });
+      } catch (err) {
+        console.error("[useLogger] logAddressConsent failed:", err);
+      }
+    },
+    [logEvent],
+  );
+
   useEffect(() => {
     try {
+      if (sessionStorage.getItem(INIT_KEY)) return;
+      sessionStorage.setItem(INIT_KEY, "1");
+
       getOrCreateSessionId();
 
       const ref = readRefFromUrl();
@@ -61,6 +82,5 @@ export function useLogger() {
     }
   }, [logEvent]);
 
-  return { logEvent };
+  return { logEvent, logAddressConsent };
 }
-

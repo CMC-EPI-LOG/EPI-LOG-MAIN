@@ -17,6 +17,7 @@ import toast from "react-hot-toast";
 import { getCharacterPath } from "@/lib/characterUtils";
 import { getBackgroundColor } from "@/lib/colorUtils";
 import { setCoreEventContext, trackCoreEvent } from "@/lib/analytics/ga";
+import { useLogger } from "@/hooks/useLogger";
 import {
   deriveDecisionSignals,
   type AirQualityView,
@@ -62,6 +63,7 @@ function parseKstDataTimeToEpoch(raw?: string | null): number | null {
 export default function Home() {
   const { location, profile, isOnboarded, setLocation, setProfile } =
     useUserStore();
+  const { logAddressConsent } = useLogger();
   const [data, setData] = useState<DailyReportData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -300,11 +302,15 @@ export default function Home() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        void logAddressConsent(true);
         const { latitude, longitude } = position.coords;
         updateLocationByCoords(latitude, longitude);
       },
       (error) => {
         console.error("Location permission denied or error:", error);
+        if (error?.code === 1) {
+          void logAddressConsent(false);
+        }
         toast.error(
           "위치 정보를 불러올 수 없어 '서울 중구' 기준으로 보여드려요 🏢",
         );
@@ -333,6 +339,7 @@ export default function Home() {
 
   const handleLocationSelect = useCallback((address: string, stationName: string) => {
     setDisplayRegion(address);
+    void logAddressConsent(true);
     const newLocation = { ...location, stationName };
     setLocation(newLocation);
 
@@ -342,7 +349,7 @@ export default function Home() {
       station_name: stationName,
     });
     fetchData(newLocation, profile, "location");
-  }, [fetchData, location, profile, setLocation]);
+  }, [fetchData, location, logAddressConsent, profile, setLocation]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
