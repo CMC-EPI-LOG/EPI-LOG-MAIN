@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { ChevronDown, Loader2, RotateCw } from 'lucide-react';
 import { parseHighlightedText } from '@/lib/textUtils';
 import { trackCoreEvent } from '@/lib/analytics/ga';
+import { useLogger } from '@/hooks/useLogger';
 
 interface InsightDrawerProps {
   threeReason?: string[];
@@ -42,6 +43,7 @@ export default function InsightDrawer({
   const [isOpen, setIsOpen] = useState(false);
   const [isDetailExpanded, setIsDetailExpanded] = useState(false);
   const [feedback, setFeedback] = useState<'helpful' | 'not_helpful' | null>(null);
+  const { logEvent } = useLogger();
 
   const hasSummary = Boolean(threeReason && threeReason.length > 0);
   const displayDetail = detailAnswer || reasoning || 'AI 선생님이 잠시 쉬고 있어요.';
@@ -210,6 +212,10 @@ export default function InsightDrawer({
                 type="button"
                 onClick={() => {
                   setFeedback('helpful');
+                  void logEvent('voc_feedback_submitted', {
+                    ui_section: 'insight_drawer',
+                    feedback_type: 'helpful',
+                  });
                   trackCoreEvent('voc_feedback_submitted', {
                     ui_section: 'insight_drawer',
                     feedback_type: 'helpful',
@@ -229,6 +235,10 @@ export default function InsightDrawer({
                 type="button"
                 onClick={() => {
                   setFeedback('not_helpful');
+                  void logEvent('voc_feedback_submitted', {
+                    ui_section: 'insight_drawer',
+                    feedback_type: 'not_helpful',
+                  });
                   trackCoreEvent('voc_feedback_submitted', {
                     ui_section: 'insight_drawer',
                     feedback_type: 'not_helpful',
