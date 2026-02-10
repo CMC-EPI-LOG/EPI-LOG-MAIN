@@ -4,6 +4,7 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import { Toaster } from "react-hot-toast";
 import KakaoScript from "@/components/KakaoScript";
 import Analytics from "@/components/Analytics";
+import LoggerInit from "@/components/LoggerInit";
 import localFont from "next/font/local";
 import "./globals.css";
 
@@ -125,6 +126,7 @@ export default function RootLayout({
           </>
         )}
         {children}
+        <LoggerInit />
         <Toaster position="top-center" reverseOrder={false} />
         <KakaoScript />
       </body>
