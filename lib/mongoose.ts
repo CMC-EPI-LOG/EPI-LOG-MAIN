@@ -1,11 +1,5 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!MONGODB_URI) {
-  throw new Error('Missing env: MONGODB_URI');
-}
-
 type MongooseCache = {
   conn: typeof mongoose | null;
   promise: Promise<typeof mongoose> | null;
@@ -23,6 +17,11 @@ const cache: MongooseCache = globalForMongoose.__mongooseCache ?? {
 globalForMongoose.__mongooseCache = cache;
 
 export async function dbConnect() {
+  const MONGODB_URI = process.env.MONGODB_URI;
+  if (!MONGODB_URI) {
+    throw new Error('Missing env: MONGODB_URI');
+  }
+
   if (cache.conn) return cache.conn;
 
   if (!cache.promise) {
