@@ -5,8 +5,7 @@ export default defineConfig({
   brand: {
     displayName: '에피로그', // 화면에 노출될 앱 이름
     primaryColor: '#3182F6', // 화면에 노출될 앱의 기본 색상으로 바꿔주세요.
-    // 아이콘을 아직 정하지 않았다면 빈 문자열로 둔 상태로도 테스트할 수 있어요.
-    icon: '',
+    icon: 'https://epi-log-main.vercel.app/epilog.svg',
   },
   web: {
     host: 'localhost',
