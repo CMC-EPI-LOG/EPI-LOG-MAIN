@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Info, X } from 'lucide-react';
+import { Info, ShieldCheck, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const STORAGE_KEY = 'epilog:ai_notice_ack_v1';
@@ -39,17 +39,27 @@ export default function AiNotice() {
   return (
     <>
       <div className="max-w-2xl mx-auto mb-3">
-        <div className="inline-flex items-center gap-2 rounded-full border-2 border-black bg-white px-3 py-1.5 shadow-bento-sm">
-          <span className="rounded-full bg-black px-2 py-0.5 text-[11px] font-black text-white">
-            AI 생성
-          </span>
-          <span className="text-xs font-bold text-gray-700">
-            이 화면의 추천/설명은 생성형 AI가 만든 결과를 포함해요.
-          </span>
+        <div className="relative overflow-hidden rounded-[22px] border-2 border-black bg-white shadow-bento-sm">
+          <div className="absolute inset-y-0 left-0 w-1.5 bg-[#3182F6]" />
+          <div className="flex items-center gap-3 px-3 py-2.5 pl-4">
+            <div className="inline-flex items-center gap-1.5 rounded-xl border-2 border-black bg-black px-2 py-1 text-[11px] font-black text-white">
+              <ShieldCheck size={12} />
+              AI 생성
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-black leading-4 text-gray-800">
+                생성형 AI 결과 안내
+              </p>
+              <p className="text-[12px] font-semibold leading-4 text-gray-600">
+                추천/설명은 AI 생성 결과를 포함해요.
+              </p>
+            </div>
+          </div>
+
           <button
             type="button"
             onClick={() => setIsOpen(true)}
-            className="ml-1 inline-flex items-center gap-1 rounded-full border border-gray-300 bg-white px-2 py-1 text-[11px] font-bold text-gray-700 hover:bg-gray-50"
+            className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex min-h-10 items-center gap-1 rounded-full border border-gray-300 bg-gray-50 px-3 py-1 text-[11px] font-bold text-gray-700 hover:bg-gray-100"
             aria-haspopup="dialog"
             aria-label="AI 생성 안내 보기"
             data-testid="ai-notice-open"
@@ -80,7 +90,8 @@ export default function AiNotice() {
             >
               <div className="flex items-center justify-between border-b-2 border-black bg-[#FEE500] px-5 py-4">
                 <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-black px-2 py-0.5 text-xs font-black text-white">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-black px-2 py-0.5 text-xs font-black text-white">
+                    <ShieldCheck size={12} />
                     AI 생성
                   </span>
                   <h2 className="text-base font-black">AI 결과 안내</h2>
@@ -100,10 +111,19 @@ export default function AiNotice() {
                 <p className="font-bold">
                   아래 내용은 생성형 AI가 자동으로 생성한 결과를 포함하며, 정확하지 않을 수 있어요.
                 </p>
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>대기질/기상/프로필 입력에 따라 결과가 달라질 수 있어요.</li>
-                  <li>의료적 조언이 아니며, 증상이 있으면 전문가 상담이 필요해요.</li>
-                  <li>안전을 위해 보수적으로 판단하고, 현장 상황을 함께 고려해주세요.</li>
+                <ul className="space-y-2">
+                  <li className="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-black" />
+                    <span>대기질/기상/프로필 입력에 따라 결과가 달라질 수 있어요.</span>
+                  </li>
+                  <li className="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-black" />
+                    <span>의료적 조언이 아니며, 증상이 있으면 전문가 상담이 필요해요.</span>
+                  </li>
+                  <li className="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-black" />
+                    <span>안전을 위해 보수적으로 판단하고, 현장 상황을 함께 고려해주세요.</span>
+                  </li>
                 </ul>
               </div>
 
@@ -123,4 +143,3 @@ export default function AiNotice() {
     </>
   );
 }
-
