@@ -57,6 +57,12 @@ body {
   transition: background-color 0.5s ease;
 }
 
+html,
+body,
+#root {
+  touch-action: manipulation;
+}
+
 /* Subtle paper texture */
 body::before {
   content: "";
@@ -202,4 +208,3 @@ body::before {
     -webkit-box-decoration-break: clone;
   }
 }
-
