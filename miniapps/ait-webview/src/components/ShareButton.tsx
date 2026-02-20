@@ -34,12 +34,16 @@ function createShareId() {
 }
 
 export default function ShareButton({ nickname, region, action, summary, reason }: ShareButtonProps) {
-  // Apps in Toss policy: don't send users outside of the miniapp environment.
-  if (process.env.NEXT_PUBLIC_PLATFORM === 'TOSS') return null;
   const { logEvent } = useLogger();
 
+  // Apps in Toss policy: don't send users outside of the miniapp environment.
+  if (process.env.NEXT_PUBLIC_PLATFORM === 'TOSS') return null;
+
   const handleShare = async () => {
-    const canNativeShare = typeof (navigator as any).share === 'function';
+    const navigatorWithShare = navigator as Navigator & {
+      share?: (data?: ShareData) => Promise<void>;
+    };
+    const canNativeShare = typeof navigatorWithShare.share === 'function';
     const shareMethod = canNativeShare ? 'native' : 'clipboard';
     const share_id = createShareId();
     void logEvent('share_link_created', { share_id });
@@ -59,7 +63,7 @@ export default function ShareButton({ nickname, region, action, summary, reason 
 
     if (canNativeShare) {
       try {
-        await (navigator as any).share(shareData);
+        await navigatorWithShare.share?.(shareData);
         void logEvent('share_result', { method: 'native', result: 'success', share_id });
         trackCoreEvent('share_clicked', {
           station_name: region || 'unknown',

@@ -583,8 +583,17 @@ export default function Home() {
           onLocationSelect={handleLocationSelect}
         />
         
-        <div className="font-brand text-2xl font-black tracking-tight">
-          에피로그
+        <div className="flex items-center gap-2 font-brand text-2xl font-black tracking-tight">
+          <img
+            src="/icon.png"
+            alt="에피로그 로고"
+            width={28}
+            height={28}
+            className="h-7 w-7 rounded-md border border-black/10 bg-white object-cover"
+            loading="eager"
+            decoding="async"
+          />
+          <span>에피로그</span>
         </div>
         
         <button

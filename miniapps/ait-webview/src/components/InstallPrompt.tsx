@@ -16,8 +16,9 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export default function InstallPrompt() {
+  const isTossPlatform = process.env.NEXT_PUBLIC_PLATFORM === 'TOSS';
+
   // Apps in Toss policy: do not encourage installing a separate app/PWA.
-  if (process.env.NEXT_PUBLIC_PLATFORM === 'TOSS') return null;
   const userAgent =
     typeof window !== 'undefined' ? window.navigator.userAgent.toLowerCase() : '';
   const isKakaoTalkInApp = userAgent.includes('kakaotalk');
@@ -43,7 +44,7 @@ export default function InstallPrompt() {
 
   useEffect(() => {
     // Detect Android/Chrome Install Prompt
-    if (isKakaoTalkInApp) return;
+    if (isTossPlatform || isKakaoTalkInApp) return;
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
@@ -56,7 +57,7 @@ export default function InstallPrompt() {
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
-  }, [isKakaoTalkInApp]);
+  }, [isKakaoTalkInApp, isTossPlatform]);
 
   const handleAndroidInstall = async () => {
     if (deferredPrompt) {
@@ -70,7 +71,7 @@ export default function InstallPrompt() {
     }
   };
 
-  if (!isVisible) return null;
+  if (isTossPlatform || !isVisible) return null;
 
   return (
     <AnimatePresence>

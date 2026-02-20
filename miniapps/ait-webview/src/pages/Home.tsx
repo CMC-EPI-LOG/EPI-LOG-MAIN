@@ -35,6 +35,7 @@ const AIR_LATEST_POLL_INTERVAL_MS = 60_000;
 
 type LoadErrorKind = "timeout" | "fetch" | null;
 type FetchCause = "initial" | "location" | "profile" | "retry";
+type LocationPermissionStatus = "idle" | "granted" | "denied" | "unsupported";
 
 interface DailyReportData {
   airQuality?: AirQualityView;
@@ -73,6 +74,10 @@ export default function Home() {
   const [loadErrorKind, setLoadErrorKind] = useState<LoadErrorKind>(null);
   const [isLocationRefreshing, setIsLocationRefreshing] = useState(false);
   const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
+  const [locationPermissionStatus, setLocationPermissionStatus] =
+    useState<LocationPermissionStatus>("idle");
+  const [isRequestingCurrentLocation, setIsRequestingCurrentLocation] =
+    useState(false);
   const activeControllerRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
   const activeFetchCauseRef = useRef<FetchCause>("initial");
@@ -147,11 +152,12 @@ export default function Home() {
       if (activeControllerRef.current === controller) {
         activeControllerRef.current = null;
       }
-      if (requestSeq !== requestSeqRef.current) return;
-      setIsLoading(false);
-      setIsRefreshing(false);
-      setIsLocationRefreshing(false);
-      setIsProfileRefreshing(false);
+      if (requestSeq === requestSeqRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+        setIsLocationRefreshing(false);
+        setIsProfileRefreshing(false);
+      }
     }
   }, [data]);
 
@@ -254,7 +260,7 @@ export default function Home() {
     };
   }, [location.stationName, refreshAirLatest]);
 
-  const updateLocationByCoords = async (lat: number, lng: number) => {
+  const updateLocationByCoords = useCallback(async (lat: number, lng: number) => {
     try {
       const res = await fetch(apiUrl("/api/reverse-geocode"), {
         method: "POST",
@@ -292,39 +298,43 @@ export default function Home() {
       setDisplayRegion("서울 중구");
       fetchData(fallbackLocation, profile, "location");
     }
-  };
+  }, [fetchData, profile, setLocation]);
 
-  useEffect(() => {
+  const requestCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
+      setLocationPermissionStatus("unsupported");
       toast.error("위치 서비스를 사용할 수 없어요");
-      fetchData(location, profile, "initial");
       return;
     }
 
+    setIsRequestingCurrentLocation(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         void logAddressConsent(true);
+        setLocationPermissionStatus("granted");
         const { latitude, longitude } = position.coords;
-        updateLocationByCoords(latitude, longitude);
+        void updateLocationByCoords(latitude, longitude).finally(() => {
+          setIsRequestingCurrentLocation(false);
+        });
       },
       (error) => {
         console.error("Location permission denied or error:", error);
         if (error?.code === 1) {
           void logAddressConsent(false);
         }
-        toast.error(
-          "위치 정보를 불러올 수 없어 '서울 중구' 기준으로 보여드려요 🏢",
-        );
-        const fallbackLocation = {
-          lat: 37.5635,
-          lng: 126.9975,
-          stationName: "중구",
-        };
-        setLocation(fallbackLocation);
-        setDisplayRegion("서울 중구");
-        fetchData(fallbackLocation, profile, "initial");
+        setLocationPermissionStatus("denied");
+        toast.error("현재 위치 권한이 없어 기존 지역 기준으로 안내해요.");
+        setIsRequestingCurrentLocation(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
       },
     );
+  }, [logAddressConsent, updateLocationByCoords]);
+
+  useEffect(() => {
+    fetchData(location, profile, "initial");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -578,8 +588,17 @@ export default function Home() {
           onLocationSelect={handleLocationSelect}
         />
         
-        <div className="font-brand text-2xl font-black tracking-tight">
-          에피로그
+        <div className="flex items-center gap-2 font-brand text-2xl font-black tracking-tight">
+          <img
+            src="/icon.png"
+            alt="에피로그 로고"
+            width={28}
+            height={28}
+            className="h-7 w-7 rounded-md border border-black/10 bg-white object-cover"
+            loading="eager"
+            decoding="async"
+          />
+          <span>에피로그</span>
         </div>
         
         <button
@@ -591,6 +610,42 @@ export default function Home() {
           <Settings size={24} />
         </button>
       </header>
+
+      {locationPermissionStatus !== "granted" && (
+        <section className="mx-auto mb-3 max-w-2xl">
+          <div className="rounded-[20px] border-2 border-black bg-white px-4 py-3 shadow-bento-sm">
+            <p className="text-[11px] font-black text-gray-700">현재 위치 권한 안내</p>
+            <p className="mt-1 text-sm font-semibold text-gray-700">
+              {locationPermissionStatus === "idle" &&
+                "정확한 동네 대기질 안내를 위해 현재 위치를 사용할 수 있어요."}
+              {locationPermissionStatus === "denied" &&
+                "권한이 꺼져 있어요. 버튼을 눌러 현재 위치 권한을 다시 요청할 수 있어요."}
+              {locationPermissionStatus === "unsupported" &&
+                "이 환경에서는 위치 서비스 사용이 어려워요. 주소 검색으로 동네를 선택해주세요."}
+            </p>
+            <button
+              type="button"
+              onClick={requestCurrentLocation}
+              disabled={isRequestingCurrentLocation || locationPermissionStatus === "unsupported"}
+              className="mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-full border-2 border-black bg-[#FEE500] px-3 py-1.5 text-xs font-black text-black shadow-bento-sm transition disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500"
+              data-testid="request-location-permission"
+            >
+              {isRequestingCurrentLocation ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  위치 확인 중...
+                </>
+              ) : (
+                <>
+                  {locationPermissionStatus === "denied"
+                    ? "현재 위치 권한 다시 요청"
+                    : "현재 위치로 업데이트"}
+                </>
+              )}
+            </button>
+          </div>
+        </section>
+      )}
 
       <AiNotice />
 
