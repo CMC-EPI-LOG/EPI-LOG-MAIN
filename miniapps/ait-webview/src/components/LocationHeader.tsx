@@ -1,10 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, lazy, useMemo, useState } from 'react';
 import { MapPin } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { createPortal } from 'react-dom';
-import { Suspense, lazy } from 'react';
+import { Modal } from '@toss/tds-mobile';
 
 const DaumPostcode = lazy(() => import('react-daum-postcode'));
 
@@ -21,7 +19,10 @@ interface DaumPostcodeData {
 
 export default function LocationHeader({ currentLocation, onLocationSelect }: LocationHeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const portalRoot = typeof document !== 'undefined' ? document.body : null;
+  const portalContainer = useMemo(
+    () => (typeof document !== 'undefined' ? document.body : null),
+    [],
+  );
 
   const handleComplete = (data: DaumPostcodeData) => {
     const displayAddress = data.bname || data.sigungu || data.address;
@@ -49,48 +50,44 @@ export default function LocationHeader({ currentLocation, onLocationSelect }: Lo
         </button>
       </div>
 
-      {portalRoot &&
-        // Use Portal to break out of the header's stacking context
-        createPortal(
-          <AnimatePresence>
-            {isSearchOpen && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                 <motion.div
-                   initial={{ opacity: 0, scale: 0.9 }}
-                   animate={{ opacity: 1, scale: 1 }}
-                   exit={{ opacity: 0, scale: 0.9 }}
-                   className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden border-2 border-black relative"
-                   role="dialog"
-                   aria-modal="true"
-                   aria-label="우리 동네 찾기"
-                   data-testid="location-modal"
-                 >
-                   <div className="p-4 flex justify-between items-center bg-pastel-blue border-b-2 border-black">
-                     <h3 className="font-black text-lg">📍 우리 동네 찾기</h3>
-                     <button 
-                       onClick={() => setIsSearchOpen(false)}
-                       className="font-bold text-2xl leading-none hover:text-red-500"
-                       aria-label="위치 검색 닫기"
-                       data-testid="location-close"
-                     >
-                       &times;
-                     </button>
-                   </div>
-                   <div className="h-[400px] w-full">
-                     <Suspense fallback={<div className="p-4 text-sm font-bold">주소 검색 불러오는 중...</div>}>
-                       <DaumPostcode 
-                         onComplete={handleComplete} 
-                         style={{ height: '100%' }}
-                         autoClose={false}
-                       />
-                     </Suspense>
-                   </div>
-                 </motion.div>
-              </div>
-            )}
-          </AnimatePresence>,
-          portalRoot
-        )}
+      <Modal
+        open={isSearchOpen}
+        portalContainer={portalContainer}
+        onOpenChange={(nextOpen) => setIsSearchOpen(nextOpen)}
+      >
+        <Modal.Overlay
+          onClick={() => setIsSearchOpen(false)}
+          className="fixed inset-0 z-[10000] bg-black/60 backdrop-blur-sm"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+        />
+        <Modal.Content
+          className="relative z-[10001] w-[calc(100vw_-_2rem)] max-w-md overflow-hidden rounded-xl border-2 border-black bg-white shadow-2xl"
+          style={{ backgroundColor: '#fff', isolation: 'isolate', opacity: 1 }}
+          aria-label="우리 동네 찾기"
+          data-testid="location-modal"
+        >
+          <div className="flex items-center justify-between border-b-2 border-black bg-pastel-blue p-4">
+            <h3 className="text-lg font-black">📍 우리 동네 찾기</h3>
+            <button 
+              onClick={() => setIsSearchOpen(false)}
+              className="text-2xl leading-none font-bold hover:text-red-500"
+              aria-label="위치 검색 닫기"
+              data-testid="location-close"
+            >
+              &times;
+            </button>
+          </div>
+          <div className="h-[400px] w-full">
+            <Suspense fallback={<div className="p-4 text-sm font-bold">주소 검색 불러오는 중...</div>}>
+              <DaumPostcode 
+                onComplete={handleComplete} 
+                style={{ height: '100%' }}
+                autoClose={false}
+              />
+            </Suspense>
+          </div>
+        </Modal.Content>
+      </Modal>
     </>
   );
 }
