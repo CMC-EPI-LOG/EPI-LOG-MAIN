@@ -7,16 +7,22 @@ import Analytics from "@/components/Analytics";
 import LoggerInit from "@/components/LoggerInit";
 import "./globals.css";
 
+const PRIMARY_SITE_URL = "https://www.ai-soom.site";
 const rawSiteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
-  (process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : "http://localhost:3000");
+  (process.env.NODE_ENV === "production"
+    ? PRIMARY_SITE_URL
+    : process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : "http://localhost:3000");
 const siteUrl = rawSiteUrl.replace(/\/$/, "");
 const gaId = process.env.NEXT_PUBLIC_GA_ID || process.env.NEXT_PUBLIC_GA4_ID;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
+  alternates: {
+    canonical: "/",
+  },
   title: {
     default: "아이숨 (AI-Soom)",
     template: "%s | 아이숨 (AI-Soom)",
@@ -37,6 +43,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "ko_KR",
+    url: siteUrl,
     siteName: "아이숨 (AI-Soom)",
     title: "아이숨 (AI-Soom)",
     description: "대기질에 따른 우리 아이 활동 가이드",

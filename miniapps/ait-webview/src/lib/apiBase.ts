@@ -8,7 +8,7 @@ export function getApiBase(): string {
 
   // In the Toss miniapp build we default to the deployed Next.js API origin.
   if (process.env.NEXT_PUBLIC_PLATFORM === "TOSS") {
-    return "https://epi-log-main.vercel.app";
+    return "https://www.ai-soom.site";
   }
 
   // Default to same-origin when running as a normal web app.
