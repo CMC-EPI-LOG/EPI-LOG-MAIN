@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url("https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css");
 
 :root {
   /* Neo-brutalism Bento Box Design System */
@@ -106,13 +107,13 @@ body::before {
   }
   
   .handwriting {
-    font-family: var(--font-chilpan);
+    font-family: var(--font-sans);
     font-weight: 400;
     letter-spacing: 0.015em;
   }
 
   .font-brand {
-    font-family: var(--font-chilpan);
+    font-family: var(--font-sans);
   }
 
   .card-primary {

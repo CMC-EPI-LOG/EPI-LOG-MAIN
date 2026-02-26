@@ -5,25 +5,7 @@ import { Toaster } from "react-hot-toast";
 import KakaoScript from "@/components/KakaoScript";
 import Analytics from "@/components/Analytics";
 import LoggerInit from "@/components/LoggerInit";
-import localFont from "next/font/local";
 import "./globals.css";
-
-const chilpanFont = localFont({
-  src: [
-    {
-      path: "./fonts/HakgyoansimChilpanjiugae-Light.otf",
-      weight: "300",
-      style: "normal",
-    },
-    {
-      path: "./fonts/HakgyoansimChilpanjiugae-Bold.otf",
-      weight: "700",
-      style: "normal",
-    },
-  ],
-  variable: "--font-chilpan",
-  display: "swap",
-});
 
 const rawSiteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
@@ -115,7 +97,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${chilpanFont.className} ${chilpanFont.variable} antialiased min-h-screen`}
+        className="antialiased min-h-screen"
       >
         {gaId && (
           <>
