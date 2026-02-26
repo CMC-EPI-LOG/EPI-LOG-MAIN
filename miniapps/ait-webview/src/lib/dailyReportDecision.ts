@@ -1,6 +1,8 @@
 export interface ProfileInput {
   ageGroup?: string;
   condition?: string;
+  conditions?: string[];
+  customConditions?: string[];
 }
 
 export interface AirQualityView {
@@ -70,7 +72,12 @@ export interface DecisionSignals {
   infantMaskBanApplied: boolean;
   weatherAdjusted: boolean;
   weatherAdjustmentReason?: string;
+  weatherAdjustmentReasons?: string[];
 }
+
+const KNOWN_CONDITIONS = ['none', 'rhinitis', 'asthma', 'atopy'] as const;
+const KNOWN_CONDITION_SET = new Set<string>(KNOWN_CONDITIONS);
+type KnownCondition = (typeof KNOWN_CONDITIONS)[number];
 
 function clampGrade(grade: number): 1 | 2 | 3 | 4 {
   if (grade <= 1) return 1;
@@ -117,40 +124,55 @@ function appendUnique(items: string[], next: string): string[] {
   return [...items, next];
 }
 
+function normalizeKnownConditions(profile: ProfileInput): KnownCondition[] {
+  const candidates = [
+    ...(Array.isArray(profile.conditions) ? profile.conditions : []),
+    ...(typeof profile.condition === 'string' ? [profile.condition] : []),
+  ]
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => KNOWN_CONDITION_SET.has(value)) as KnownCondition[];
+
+  const deduped = Array.from(new Set<KnownCondition>(candidates));
+  const withoutNone = deduped.filter((value) => value !== 'none');
+  return withoutNone.length > 0 ? withoutNone : deduped;
+}
+
 function applyWeatherAdjustment(
   baseRiskGrade: number,
   profile: ProfileInput,
   temp?: number,
   humidity?: number,
-): { adjusted: 1 | 2 | 3 | 4; reason?: string } {
+): { adjusted: 1 | 2 | 3 | 4; reasons: string[] } {
   let adjusted = baseRiskGrade;
-  let reason: string | undefined;
+  const reasons: string[] = [];
 
   const ageGroup = profile.ageGroup || 'elementary_low';
-  const condition = profile.condition || 'none';
+  const conditions = normalizeKnownConditions(profile);
 
   if ((ageGroup === 'infant' || ageGroup === 'toddler') && humidity != null && humidity < 35) {
     adjusted += 1;
-    reason = '영유아 + 저습도(35% 미만)로 위험도를 1단계 상향했어요.';
+    reasons.push('영유아 + 저습도(35% 미만)로 위험도를 1단계 상향했어요.');
   } else if (ageGroup === 'elementary_low' && temp != null && (temp >= 30 || temp <= 2)) {
     adjusted += 1;
-    reason = '초등 저학년 + 극단 기온으로 위험도를 1단계 상향했어요.';
+    reasons.push('초등 저학년 + 극단 기온으로 위험도를 1단계 상향했어요.');
   }
 
-  if (condition === 'asthma' && temp != null && temp < 5) {
+  if (conditions.includes('asthma') && temp != null && temp < 5) {
     adjusted += 1;
-    reason = '천식 + 저온(5°C 미만)으로 위험도를 1단계 상향했어요.';
-  } else if (condition === 'rhinitis' && humidity != null && humidity < 30) {
+    reasons.push('천식 + 저온(5°C 미만)로 위험도를 1단계 상향했어요.');
+  }
+  if (conditions.includes('rhinitis') && humidity != null && humidity < 30) {
     adjusted += 1;
-    reason = '비염 + 건조(30% 미만)로 위험도를 1단계 상향했어요.';
-  } else if (condition === 'atopy' && temp != null && temp > 30) {
+    reasons.push('비염 + 건조(30% 미만)로 위험도를 1단계 상향했어요.');
+  }
+  if (conditions.includes('atopy') && temp != null && temp > 30) {
     adjusted += 1;
-    reason = '아토피 + 고온(30°C 초과)로 위험도를 1단계 상향했어요.';
+    reasons.push('아토피 + 고온(30°C 초과)로 위험도를 1단계 상향했어요.');
   }
 
   return {
     adjusted: clampGrade(adjusted),
-    reason,
+    reasons,
   };
 }
 
@@ -212,8 +234,10 @@ export function deriveDecisionSignals(
     );
   }
 
-  if (weatherAdjusted.reason) {
-    nextGuide.threeReason = appendUnique(nextGuide.threeReason || [], weatherAdjusted.reason);
+  if (weatherAdjusted.reasons.length > 0) {
+    for (const reason of weatherAdjusted.reasons) {
+      nextGuide.threeReason = appendUnique(nextGuide.threeReason || [], reason);
+    }
   }
 
   if (isO3DominantRisk && inO3RiskWindow) {
@@ -234,8 +258,9 @@ export function deriveDecisionSignals(
       o3IsDominantRisk: isO3DominantRisk,
       o3OutingBanForced: isO3High,
       infantMaskBanApplied: isInfant,
-      weatherAdjusted: Boolean(weatherAdjusted.reason),
-      weatherAdjustmentReason: weatherAdjusted.reason,
+      weatherAdjusted: weatherAdjusted.reasons.length > 0,
+      weatherAdjustmentReason: weatherAdjusted.reasons[0],
+      weatherAdjustmentReasons: weatherAdjusted.reasons,
     },
   };
 }

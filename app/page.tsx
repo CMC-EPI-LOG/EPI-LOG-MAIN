@@ -46,6 +46,44 @@ interface DailyReportData {
   timestamp?: string;
 }
 
+const KNOWN_CONDITION_LABELS: Record<string, string> = {
+  none: '해당 없음',
+  rhinitis: '비염',
+  asthma: '천식',
+  atopy: '아토피',
+};
+
+function normalizeKnownConditions(profile: UserProfile | null | undefined): string[] {
+  if (!profile) return ['none'];
+
+  const knownConditions = [
+    ...(Array.isArray(profile.conditions) ? profile.conditions : []),
+    ...(typeof profile.condition === 'string' ? [profile.condition] : []),
+  ]
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value in KNOWN_CONDITION_LABELS);
+
+  const deduped = Array.from(new Set(knownConditions));
+  const withoutNone = deduped.filter((value) => value !== 'none');
+  if (withoutNone.length > 0) return withoutNone;
+
+  if (Array.isArray(profile.customConditions) && profile.customConditions.length > 0) {
+    return [];
+  }
+
+  return ['none'];
+}
+
+function buildConditionContextValue(profile: UserProfile | null | undefined): string {
+  if (!profile) return 'none';
+
+  const known = normalizeKnownConditions(profile).filter((condition) => condition !== 'none');
+  const custom = Array.isArray(profile.customConditions) ? profile.customConditions : [];
+  const merged = [...known, ...custom].filter(Boolean);
+
+  return merged.length > 0 ? merged.join(',') : 'none';
+}
+
 function parseKstDataTimeToEpoch(raw?: string | null): number | null {
   if (!raw) return null;
   const matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
@@ -196,8 +234,13 @@ export default function Home() {
         };
 
         const profileForDecision: ProfileInput = profile
-          ? { ageGroup: profile.ageGroup, condition: profile.condition }
-          : { ageGroup: "elementary_low", condition: "none" };
+          ? {
+              ageGroup: profile.ageGroup,
+              condition: profile.condition,
+              conditions: profile.conditions,
+              customConditions: profile.customConditions,
+            }
+          : { ageGroup: "elementary_low", condition: "none", conditions: ["none"], customConditions: [] };
 
         const derived = deriveDecisionSignals(
           latestAirQuality,
@@ -337,10 +380,12 @@ export default function Home() {
     void logEvent("profile_changed", {
       age_group: newProfile.ageGroup,
       condition: newProfile.condition,
+      conditions: buildConditionContextValue(newProfile),
     });
     trackCoreEvent("profile_changed", {
       age_group: newProfile.ageGroup,
       condition: newProfile.condition,
+      conditions: buildConditionContextValue(newProfile),
     });
     fetchData(location, newProfile, "profile");
   };
@@ -553,11 +598,12 @@ export default function Home() {
   ]);
 
   useEffect(() => {
+    const conditionContext = buildConditionContextValue(profile);
     setCoreEventContext({
       station_name: data?.airQuality?.stationName || location.stationName,
       reliability_status: data?.reliability?.status || "unknown",
       age_group: profile?.ageGroup,
-      condition: profile?.condition,
+      condition: conditionContext,
     });
 
     Sentry.setTag("station", data?.airQuality?.stationName || location.stationName);
@@ -565,13 +611,14 @@ export default function Home() {
     Sentry.setContext("profile", {
       ageGroup: profile?.ageGroup,
       condition: profile?.condition,
+      conditions: normalizeKnownConditions(profile),
+      customConditions: profile?.customConditions || [],
     });
   }, [
     data?.airQuality?.stationName,
     data?.reliability?.status,
     location.stationName,
-    profile?.ageGroup,
-    profile?.condition,
+    profile,
   ]);
 
   return (
@@ -738,7 +785,7 @@ export default function Home() {
       </p>
 
       <OnboardingModal
-        key={`onboarding-${profile?.ageGroup || "default"}-${profile?.condition || "default"}-${isModalOpen ? "open" : "closed"}`}
+        key={`onboarding-${profile?.ageGroup || "default"}-${profile?.condition || "default"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isModalOpen ? "open" : "closed"}`}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleProfileSubmit}

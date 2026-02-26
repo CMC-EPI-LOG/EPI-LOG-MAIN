@@ -332,11 +332,14 @@ test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반
   await page.route('**/api/daily-report', async (route) => {
     const body = route.request().postDataJSON() as {
       stationName?: string;
-      profile?: { ageGroup?: string; condition?: string };
+      profile?: { ageGroup?: string; condition?: string; conditions?: string[] };
     };
 
     const stationName = body.stationName || '중구';
-    const isProfileRefresh = body.profile?.ageGroup === 'infant' && body.profile?.condition === 'asthma';
+    const hasAsthma =
+      body.profile?.condition === 'asthma' ||
+      (Array.isArray(body.profile?.conditions) && body.profile?.conditions.includes('asthma'));
+    const isProfileRefresh = body.profile?.ageGroup === 'infant' && hasAsthma;
     const payload = reportForStation(stationName);
 
     if (stationName === '종로구' || isProfileRefresh) {

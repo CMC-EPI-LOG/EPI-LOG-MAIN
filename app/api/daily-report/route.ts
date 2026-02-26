@@ -32,7 +32,13 @@ export async function OPTIONS() {
 interface ProfileInput {
   ageGroup?: string;
   condition?: string;
+  conditions?: string[];
+  customConditions?: string[];
 }
+
+const KNOWN_CONDITIONS = ['none', 'rhinitis', 'asthma', 'atopy'] as const;
+const KNOWN_CONDITION_SET = new Set<string>(KNOWN_CONDITIONS);
+type KnownCondition = (typeof KNOWN_CONDITIONS)[number];
 
 interface AirQualityRaw {
   sidoName?: string;
@@ -116,16 +122,70 @@ async function parseRequestBody(request: Request): Promise<Record<string, unknow
 
 function mapProfileToAiSchema(profile: ProfileInput) {
   const aiAge = profile.ageGroup || 'elementary_low';
+  const knownConditions = normalizeKnownConditions(profile);
+  const primaryCondition = knownConditions.find((condition) => condition !== 'none') || 'none';
 
   let aiCondition = 'general';
-  if (profile.condition === 'asthma') aiCondition = 'asthma';
-  else if (profile.condition === 'rhinitis') aiCondition = 'rhinitis';
-  else if (profile.condition === 'atopy') aiCondition = 'atopy';
-  else if (profile.condition === 'none') aiCondition = 'general';
+  if (primaryCondition === 'asthma') aiCondition = 'asthma';
+  else if (primaryCondition === 'rhinitis') aiCondition = 'rhinitis';
+  else if (primaryCondition === 'atopy') aiCondition = 'atopy';
+  else if (primaryCondition === 'none') aiCondition = 'general';
 
   return {
     ageGroup: aiAge,
     condition: aiCondition,
+  };
+}
+
+function normalizeKnownConditions(profile: ProfileInput): KnownCondition[] {
+  const candidates = [
+    ...(Array.isArray(profile.conditions) ? profile.conditions : []),
+    ...(typeof profile.condition === 'string' ? [profile.condition] : []),
+  ]
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => KNOWN_CONDITION_SET.has(value)) as KnownCondition[];
+
+  const deduped = Array.from(new Set<KnownCondition>(candidates));
+  const withoutNone = deduped.filter((value) => value !== 'none');
+  return withoutNone.length > 0 ? withoutNone : deduped;
+}
+
+function normalizeCustomConditions(profile: ProfileInput): string[] {
+  if (!Array.isArray(profile.customConditions)) return [];
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const condition of profile.customConditions) {
+    if (typeof condition !== 'string') continue;
+    const trimmed = condition.trim();
+    if (!trimmed) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+
+  return normalized.slice(0, 5);
+}
+
+function normalizeProfileInput(profile?: ProfileInput): Required<Pick<ProfileInput, 'ageGroup' | 'condition' | 'conditions' | 'customConditions'>> {
+  const ageGroup = profile?.ageGroup || 'elementary_low';
+  const customConditions = normalizeCustomConditions(profile || {});
+  let conditions = normalizeKnownConditions(profile || {});
+
+  if (customConditions.length > 0) {
+    conditions = conditions.filter((condition) => condition !== 'none');
+  }
+  if (conditions.length === 0 && customConditions.length === 0) {
+    conditions = ['none'];
+  }
+
+  const condition = conditions.find((item) => item !== 'none') || 'none';
+
+  return {
+    ageGroup,
+    condition,
+    conditions,
+    customConditions,
   };
 }
 
@@ -369,13 +429,15 @@ export async function POST(request: Request) {
         : undefined;
 
     const requestedStation = stationName || '강남구';
-    const finalProfile = profile || { ageGroup: 'elementary_low', condition: 'none' };
+    const finalProfile = normalizeProfileInput(profile);
     const aiProfile = mapProfileToAiSchema(finalProfile);
 
     Sentry.setTag('station.requested', requestedStation);
     Sentry.setContext('profile', {
-      ageGroup: finalProfile.ageGroup || 'elementary_low',
-      condition: finalProfile.condition || 'none',
+      ageGroup: finalProfile.ageGroup,
+      condition: finalProfile.condition,
+      conditions: finalProfile.conditions,
+      customConditions: finalProfile.customConditions,
     });
 
     console.log(`[BFF] Requested station: ${requestedStation}`);
