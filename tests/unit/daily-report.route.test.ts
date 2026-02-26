@@ -90,6 +90,23 @@ describe('deriveDecisionSignals', () => {
     expect(result.decisionSignals.adjustedRiskGrade).toBeGreaterThanOrEqual(3);
     expect(result.aiGuide.threeReason?.some((reason) => reason.includes('비염 + 건조'))).toBe(true);
   });
+
+  it('복수 질환 선택 시 각각의 보정이 함께 반영된다', () => {
+    const air = createAir({ pm25_value: 20, o3_value: 0.05, temp: 0, humidity: 25 });
+    const guide = createGuide();
+    const profile: ProfileInput = {
+      ageGroup: 'elementary_low',
+      conditions: ['rhinitis', 'asthma'],
+      condition: 'asthma',
+    };
+
+    const result = deriveDecisionSignals(air, guide, profile, 11);
+
+    expect(result.decisionSignals.weatherAdjusted).toBe(true);
+    expect(result.decisionSignals.adjustedRiskGrade).toBe(4);
+    expect(result.aiGuide.threeReason?.some((reason) => reason.includes('비염 + 건조'))).toBe(true);
+    expect(result.aiGuide.threeReason?.some((reason) => reason.includes('천식 + 저온'))).toBe(true);
+  });
 });
 
 describe('buildReliabilityMeta', () => {
