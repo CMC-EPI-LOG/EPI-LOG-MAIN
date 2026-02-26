@@ -70,9 +70,13 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
   );
 
   const toggleCondition = (value: string) => {
-    setConditions((prev) => {
-      if (value === 'none') return ['none'];
+    if (value === 'none') {
+      setConditions(['none']);
+      setCustomConditions([]);
+      return;
+    }
 
+    setConditions((prev) => {
       const withoutNone = prev.filter((condition) => condition !== 'none');
       if (withoutNone.includes(value)) {
         const next = withoutNone.filter((condition) => condition !== value);
@@ -101,7 +105,7 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
     setCustomConditionInput('');
   };
 
-  const removeCustomCondition = (value: string) => {
+  const toggleCustomCondition = (value: string) => {
     const nextCustomConditions = customConditions.filter((condition) => condition !== value);
     setCustomConditions(nextCustomConditions);
 
@@ -261,16 +265,19 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
                 </div>
 
                 {customConditions.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-3 grid grid-cols-2 gap-3">
                     {customConditions.map((condition) => (
                       <button
                         key={condition}
                         type="button"
-                        onClick={() => removeCustomCondition(condition)}
-                        className="inline-flex items-center gap-1 rounded-full border-2 border-black bg-white px-3 py-1 text-xs font-bold text-gray-800"
+                        onClick={() => toggleCustomCondition(condition)}
+                        className="rounded-[20px] border-[3px] border-black bg-black p-4 text-center font-bold text-white shadow-bento-sm transition-all hover:-translate-y-0.5"
                       >
-                        {condition}
-                        <span className="text-sm leading-none">×</span>
+                        <div className="mb-1 text-2xl">✍️</div>
+                        <div className="line-clamp-2 break-words text-sm">{condition}</div>
+                        <div className="mt-1 text-[11px] font-semibold text-white/80">
+                          탭해서 해제
+                        </div>
                       </button>
                     ))}
                   </div>
