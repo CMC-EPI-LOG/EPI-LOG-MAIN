@@ -48,3 +48,6 @@ npm run build
 
 `@toss/tds-mobile`이 설치되어 있습니다. TDS는 로컬 브라우저에서는 동작하지 않을 수 있으니, UI 확인은 샌드박스앱 기준으로 진행하세요.
 
+## 심사 재준비 문서
+
+- 리브랜딩/사전점검 결과: `REVIEW_PRECHECK.md`
