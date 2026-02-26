@@ -22,6 +22,13 @@ const UTM_KEYS = [
   "utm_content",
 ] as const;
 
+export const CORE_EVENT_CONTEXT_DEFAULTS: GaEventParams = {
+  station_name: "unknown",
+  age_group: "unknown",
+  condition: "unknown",
+  reliability_status: "unknown",
+};
+
 let sharedCoreContext: GaEventParams = {};
 
 const canTrack = (gaId?: string) =>
@@ -125,6 +132,8 @@ export const trackEvent = (
 };
 
 export const CORE_EVENT_NAMES = [
+  "miniapp_entry",
+  "miniapp_pageview",
   "location_changed",
   "profile_changed",
   "insight_opened",
@@ -145,10 +154,14 @@ export const trackCoreEvent = (
   params?: GaEventParams,
 ) => {
   if (!GA_ID) return;
+
+  const safeSharedContext = sanitizeEventParams(sharedCoreContext) || {};
+  const safeEventParams = sanitizeEventParams(params) || {};
   const mergedParams = sanitizeEventParams({
     ...readStoredAttribution(),
-    ...sharedCoreContext,
-    ...params,
+    ...CORE_EVENT_CONTEXT_DEFAULTS,
+    ...safeSharedContext,
+    ...safeEventParams,
     event_name: eventName,
   });
   trackEvent(GA_ID, eventName, mergedParams);
