@@ -1,6 +1,6 @@
 {
-  "name": "에피로그 (EPI-LOG) - 아이 활동 가이드",
-  "short_name": "에피로그",
+  "name": "아이숨 (AI-Soom) - 아이 활동 가이드",
+  "short_name": "아이숨",
   "description": "대기질에 따른 우리 아이 활동 가이드",
   "start_url": "/",
   "display": "standalone",

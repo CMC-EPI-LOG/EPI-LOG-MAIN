@@ -32,6 +32,8 @@ const REPORT_TIMEOUT_MS = 25000;
 const FRESHNESS_DELAYED_MINUTES = 60;
 const FRESHNESS_STALE_MINUTES = 90;
 const AIR_LATEST_POLL_INTERVAL_MS = 60_000;
+const TEST_LOCATION_EVENT = "aisoom:test-location-select";
+const LEGACY_TEST_LOCATION_EVENT = "epilog:test-location-select";
 
 type LoadErrorKind = "timeout" | "fetch" | null;
 type FetchCause = "initial" | "location" | "profile" | "retry";
@@ -378,9 +380,11 @@ export default function Home() {
       handleLocationSelect(address, stationName);
     };
 
-    window.addEventListener("epilog:test-location-select", testLocationHandler);
+    window.addEventListener(TEST_LOCATION_EVENT, testLocationHandler);
+    window.addEventListener(LEGACY_TEST_LOCATION_EVENT, testLocationHandler);
     return () => {
-      window.removeEventListener("epilog:test-location-select", testLocationHandler);
+      window.removeEventListener(TEST_LOCATION_EVENT, testLocationHandler);
+      window.removeEventListener(LEGACY_TEST_LOCATION_EVENT, testLocationHandler);
     };
   }, [data, handleLocationSelect]);
 
@@ -591,14 +595,14 @@ export default function Home() {
         <div className="flex items-center gap-2 font-brand text-2xl font-black tracking-tight">
           <img
             src="/icon.png"
-            alt="에피로그 로고"
+            alt="아이숨 로고"
             width={28}
             height={28}
             className="h-7 w-7 rounded-md border border-black/10 bg-white object-cover"
             loading="eager"
             decoding="async"
           />
-          <span>에피로그</span>
+          <span>아이숨</span>
         </div>
         
         <button

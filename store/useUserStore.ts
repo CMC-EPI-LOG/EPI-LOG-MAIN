@@ -1,8 +1,12 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
+const STORAGE_KEY = 'aisoom-storage';
+const LEGACY_STORAGE_KEY = 'epilog-storage';
+const STORAGE_TEST_KEY = '__aisoom_storage_test__';
+
 const memoryStorage = (() => {
-  let store: Record<string, string> = {};
+  const store: Record<string, string> = {};
   return {
     getItem: (name: string) => (name in store ? store[name] : null),
     setItem: (name: string, value: string) => {
@@ -14,12 +18,24 @@ const memoryStorage = (() => {
   };
 })();
 
+const migrateLegacyPersistState = (storage: Storage) => {
+  try {
+    if (storage.getItem(STORAGE_KEY) !== null) return;
+    const legacyState = storage.getItem(LEGACY_STORAGE_KEY);
+    if (legacyState === null) return;
+    storage.setItem(STORAGE_KEY, legacyState);
+    storage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // Ignore migration failures and continue with default initialization.
+  }
+};
+
 const getSafeStorage = () => {
   if (typeof window === 'undefined') return memoryStorage;
   try {
-    const testKey = '__epilog_storage_test__';
-    window.localStorage.setItem(testKey, '1');
-    window.localStorage.removeItem(testKey);
+    window.localStorage.setItem(STORAGE_TEST_KEY, '1');
+    window.localStorage.removeItem(STORAGE_TEST_KEY);
+    migrateLegacyPersistState(window.localStorage);
     return window.localStorage;
   } catch {
     return memoryStorage;
@@ -62,7 +78,7 @@ export const useUserStore = create<UserState>()(
       resetProfile: () => set({ profile: null, isOnboarded: false }),
     }),
     {
-      name: 'epilog-storage',
+      name: STORAGE_KEY,
       storage: createJSONStorage(getSafeStorage),
     }
   )
