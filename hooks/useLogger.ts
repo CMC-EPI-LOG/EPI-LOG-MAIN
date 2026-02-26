@@ -6,9 +6,12 @@ const SESSION_KEY = "session_id";
 const SOURCE_KEY = "source";
 const SHARED_BY_KEY = "shared_by";
 const ADDRESS_CONSENT_KEY = "address_consent";
-const INIT_KEY = "__epi_log_logger_init_v1";
-const SESSION_START_KEY = "__epi_log_session_start_ts_v1";
-const EXIT_SENT_KEY = "__epi_log_session_exit_sent_v1";
+const INIT_KEY = "__aisoom_log_logger_init_v1";
+const SESSION_START_KEY = "__aisoom_log_session_start_ts_v1";
+const EXIT_SENT_KEY = "__aisoom_log_session_exit_sent_v1";
+const LEGACY_INIT_KEY = "__epi_log_logger_init_v1";
+const LEGACY_SESSION_START_KEY = "__epi_log_session_start_ts_v1";
+const LEGACY_EXIT_SENT_KEY = "__epi_log_session_exit_sent_v1";
 
 function createSessionId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -45,6 +48,23 @@ function readSharedByFromUrl() {
   } catch {
     return null;
   }
+}
+
+function readSessionValue(key: string, legacyKey: string) {
+  const current = sessionStorage.getItem(key);
+  if (current !== null) return current;
+
+  const legacy = sessionStorage.getItem(legacyKey);
+  if (legacy !== null) {
+    sessionStorage.setItem(key, legacy);
+    sessionStorage.removeItem(legacyKey);
+  }
+  return legacy;
+}
+
+function writeSessionValue(key: string, value: string, legacyKey: string) {
+  sessionStorage.setItem(key, value);
+  sessionStorage.removeItem(legacyKey);
 }
 
 export function useLogger() {
@@ -106,8 +126,8 @@ export function useLogger() {
 
   useEffect(() => {
     try {
-      if (sessionStorage.getItem(INIT_KEY)) return;
-      sessionStorage.setItem(INIT_KEY, "1");
+      if (readSessionValue(INIT_KEY, LEGACY_INIT_KEY)) return;
+      writeSessionValue(INIT_KEY, "1", LEGACY_INIT_KEY);
 
       getOrCreateSessionId();
 
@@ -129,14 +149,14 @@ export function useLogger() {
   useEffect(() => {
     // Track time-to-exit (best-effort). This is tab-session scoped.
     try {
-      const startRaw = sessionStorage.getItem(SESSION_START_KEY);
+      const startRaw = readSessionValue(SESSION_START_KEY, LEGACY_SESSION_START_KEY);
       const startTs = startRaw ? Number(startRaw) : Date.now();
-      if (!startRaw) sessionStorage.setItem(SESSION_START_KEY, String(startTs));
+      if (!startRaw) writeSessionValue(SESSION_START_KEY, String(startTs), LEGACY_SESSION_START_KEY);
 
       const sendExit = (reason: "pagehide" | "hidden") => {
         try {
-          if (sessionStorage.getItem(EXIT_SENT_KEY)) return;
-          sessionStorage.setItem(EXIT_SENT_KEY, "1");
+          if (readSessionValue(EXIT_SENT_KEY, LEGACY_EXIT_SENT_KEY)) return;
+          writeSessionValue(EXIT_SENT_KEY, "1", LEGACY_EXIT_SENT_KEY);
 
           const session_id = getOrCreateSessionId();
           const source = localStorage.getItem(SOURCE_KEY) || undefined;

@@ -32,6 +32,8 @@ const REPORT_TIMEOUT_MS = 25000;
 const FRESHNESS_DELAYED_MINUTES = 60;
 const FRESHNESS_STALE_MINUTES = 90;
 const AIR_LATEST_POLL_INTERVAL_MS = 60_000;
+const TEST_LOCATION_EVENT = "aisoom:test-location-select";
+const LEGACY_TEST_LOCATION_EVENT = "epilog:test-location-select";
 
 type LoadErrorKind = "timeout" | "fetch" | null;
 type FetchCause = "initial" | "location" | "profile" | "retry";
@@ -368,9 +370,11 @@ export default function Home() {
       handleLocationSelect(address, stationName);
     };
 
-    window.addEventListener("epilog:test-location-select", testLocationHandler);
+    window.addEventListener(TEST_LOCATION_EVENT, testLocationHandler);
+    window.addEventListener(LEGACY_TEST_LOCATION_EVENT, testLocationHandler);
     return () => {
-      window.removeEventListener("epilog:test-location-select", testLocationHandler);
+      window.removeEventListener(TEST_LOCATION_EVENT, testLocationHandler);
+      window.removeEventListener(LEGACY_TEST_LOCATION_EVENT, testLocationHandler);
     };
   }, [data, handleLocationSelect]);
 

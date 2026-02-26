@@ -13,7 +13,8 @@ export type GaEventParams = Record<
   string | number | boolean | null | undefined
 >;
 
-const ATTRIBUTION_STORAGE_KEY = "epilog:utm_attribution";
+const ATTRIBUTION_STORAGE_KEY = "aisoom:utm_attribution";
+const LEGACY_ATTRIBUTION_STORAGE_KEY = "epilog:utm_attribution";
 const UTM_KEYS = [
   "utm_source",
   "utm_medium",
@@ -36,18 +37,31 @@ const sanitizeEventParams = (params?: GaEventParams): GaEventParams | undefined 
   return Object.fromEntries(entries);
 };
 
+const readStorageByKey = (key: string) =>
+  window.sessionStorage.getItem(key) || window.localStorage.getItem(key);
+
+const clearLegacyAttribution = () => {
+  window.sessionStorage.removeItem(LEGACY_ATTRIBUTION_STORAGE_KEY);
+  window.localStorage.removeItem(LEGACY_ATTRIBUTION_STORAGE_KEY);
+};
+
 const readStoredAttribution = (): GaEventParams => {
   if (typeof window === "undefined") return {};
 
-  const raw =
-    window.sessionStorage.getItem(ATTRIBUTION_STORAGE_KEY) ||
-    window.localStorage.getItem(ATTRIBUTION_STORAGE_KEY);
+  const raw = readStorageByKey(ATTRIBUTION_STORAGE_KEY);
+  const legacyRaw = raw ? null : readStorageByKey(LEGACY_ATTRIBUTION_STORAGE_KEY);
+  const sourceRaw = raw ?? legacyRaw;
 
-  if (!raw) return {};
+  if (!sourceRaw) return {};
 
   try {
-    const parsed = JSON.parse(raw) as GaEventParams;
-    return sanitizeEventParams(parsed) || {};
+    const parsed = JSON.parse(sourceRaw) as GaEventParams;
+    const safe = sanitizeEventParams(parsed) || {};
+    if (legacyRaw) {
+      writeAttribution(safe);
+      clearLegacyAttribution();
+    }
+    return safe;
   } catch {
     return {};
   }

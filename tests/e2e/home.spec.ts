@@ -355,7 +355,7 @@ test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반
 
   await page.evaluate(() => {
     window.dispatchEvent(
-      new CustomEvent('epilog:test-location-select', {
+      new CustomEvent('aisoom:test-location-select', {
         detail: { address: '서울 종로구', stationName: '종로구' },
       }),
     );

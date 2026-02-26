@@ -1,10 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Info, ShieldCheck, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-const STORAGE_KEY = "epilog:ai_notice_ack_v1";
+const STORAGE_KEY = "aisoom:ai_notice_ack_v1";
+const LEGACY_STORAGE_KEY = "epilog:ai_notice_ack_v1";
+
+function hasAcknowledgedNotice() {
+  const current = localStorage.getItem(STORAGE_KEY);
+  if (current) return true;
+
+  const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+  if (!legacy) return false;
+
+  localStorage.setItem(STORAGE_KEY, legacy);
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  return true;
+}
 
 function isTossPlatform() {
   return process.env.NEXT_PUBLIC_PLATFORM === "TOSS";
@@ -12,23 +25,21 @@ function isTossPlatform() {
 
 export default function AiNotice() {
   const enabled = useMemo(() => isTossPlatform(), []);
-  const [isOpen, setIsOpen] = useState(false);
-
-  useEffect(() => {
-    if (!enabled) return;
+  const [isOpen, setIsOpen] = useState(() => {
+    if (!isTossPlatform()) return false;
     try {
-      if (localStorage.getItem(STORAGE_KEY)) return;
-      setIsOpen(true);
+      return !hasAcknowledgedNotice();
     } catch {
-      setIsOpen(true);
+      return true;
     }
-  }, [enabled]);
+  });
 
   if (!enabled) return null;
 
   const acknowledgeAndClose = () => {
     try {
       localStorage.setItem(STORAGE_KEY, "1");
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // ignore
     }

@@ -4,7 +4,20 @@ import { useState } from 'react';
 import { Info, ShieldCheck, X } from 'lucide-react';
 import { Modal } from '@toss/tds-mobile';
 
-const STORAGE_KEY = 'epilog:ai_notice_ack_v1';
+const STORAGE_KEY = 'aisoom:ai_notice_ack_v1';
+const LEGACY_STORAGE_KEY = 'epilog:ai_notice_ack_v1';
+
+function hasAcknowledgedNotice() {
+  const current = localStorage.getItem(STORAGE_KEY);
+  if (current) return true;
+
+  const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+  if (!legacy) return false;
+
+  localStorage.setItem(STORAGE_KEY, legacy);
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  return true;
+}
 
 function isTossPlatform() {
   // Vite build defines this to a string literal; Next.js reads it normally.
@@ -17,7 +30,7 @@ export default function AiNotice() {
     if (!enabled) return false;
 
     try {
-      return !localStorage.getItem(STORAGE_KEY);
+      return !hasAcknowledgedNotice();
     } catch {
       return true;
     }
@@ -29,6 +42,7 @@ export default function AiNotice() {
   const acknowledgeAndClose = () => {
     try {
       localStorage.setItem(STORAGE_KEY, '1');
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // ignore
     }
