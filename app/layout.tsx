@@ -18,14 +18,14 @@ const gaId = process.env.NEXT_PUBLIC_GA_ID || process.env.NEXT_PUBLIC_GA4_ID;
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "에피로그 (EPI-LOG)",
-    template: "%s | 에피로그 (EPI-LOG)",
+    default: "아이숨 (AI-Soom)",
+    template: "%s | 아이숨 (AI-Soom)",
   },
   description: "대기질에 따른 우리 아이 활동 가이드",
-  applicationName: "에피로그 (EPI-LOG)",
+  applicationName: "아이숨 (AI-Soom)",
   keywords: [
-    "에피로그",
-    "EPI-LOG",
+    "아이숨",
+    "AI-Soom",
     "대기질",
     "미세먼지",
     "초미세먼지",
@@ -37,21 +37,21 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "ko_KR",
-    siteName: "에피로그 (EPI-LOG)",
-    title: "에피로그 (EPI-LOG)",
+    siteName: "아이숨 (AI-Soom)",
+    title: "아이숨 (AI-Soom)",
     description: "대기질에 따른 우리 아이 활동 가이드",
     images: [
       {
         url: "/thumbnail.png",
         width: 1200,
         height: 630,
-        alt: "에피로그 (EPI-LOG) 공유 이미지",
+        alt: "아이숨 (AI-Soom) 공유 이미지",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "에피로그 (EPI-LOG)",
+    title: "아이숨 (AI-Soom)",
     description: "대기질에 따른 우리 아이 활동 가이드",
     images: ["/thumbnail.png"],
   },
