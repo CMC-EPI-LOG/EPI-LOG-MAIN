@@ -38,6 +38,36 @@ describe('stationResolution', () => {
     );
   });
 
+  it('확장 샘플(대구/인천/광주/울산/경기/강원/충북/전남/경남) 보정 힌트를 포함한다', () => {
+    expect(buildStationCandidates('대구광역시 수성구 범어동')).toEqual(
+      expect.arrayContaining(['만촌동', '지산동']),
+    );
+    expect(buildStationCandidates('인천광역시 남동구 만수동')).toEqual(
+      expect.arrayContaining(['구월동', '논현']),
+    );
+    expect(buildStationCandidates('광주광역시 광산구 우산동')).toEqual(
+      expect.arrayContaining(['평동', '건국동']),
+    );
+    expect(buildStationCandidates('울산광역시 북구 염포동')).toEqual(
+      expect.arrayContaining(['효문동', '농소동']),
+    );
+    expect(buildStationCandidates('경기도 고양시 일산동구 장항동')).toEqual(
+      expect.arrayContaining(['주엽동', '행신동']),
+    );
+    expect(buildStationCandidates('강원특별자치도 원주시 단계동')).toEqual(
+      expect.arrayContaining(['문막읍']),
+    );
+    expect(buildStationCandidates('충청북도 충주시 연수동')).toEqual(
+      expect.arrayContaining(['호암동', '칠금동']),
+    );
+    expect(buildStationCandidates('전라남도 목포시 상동')).toEqual(
+      expect.arrayContaining(['부흥동', '용당동']),
+    );
+    expect(buildStationCandidates('경상남도 김해시 내동')).toEqual(
+      expect.arrayContaining(['장유동', '삼방동']),
+    );
+  });
+
   it('기존 분당구 힌트도 유지된다', () => {
     const candidates = buildStationCandidates('성남시 분당구');
     expect(candidates).toContain('정자동');
