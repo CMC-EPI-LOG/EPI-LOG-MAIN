@@ -1,0 +1,18 @@
+[
+  { "requestedStation": "부산광역시 중구 영주동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 서구 대신동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 동구 초량동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 영도구 청학동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 부산진구 부전동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 동래구 명륜동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 남구 대연동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 북구 덕천동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 해운대구 우동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 사하구 당리동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 금정구 장전동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 강서구 명지동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 연제구 연산동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 수영구 광안동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 사상구 괘법동", "expectedSido": "부산" },
+  { "requestedStation": "부산광역시 기장군 기장읍", "expectedSido": "부산" }
+]

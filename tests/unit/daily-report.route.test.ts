@@ -78,6 +78,27 @@ describe('deriveDecisionSignals', () => {
     expect(result.aiGuide.actionItems).toContain('영아는 마스크 대신 실내 공기질 관리에 집중');
   });
 
+  it('영아 프로필이면 격한 야외 액션 문구를 제거하고 안전 문구로 대체한다', () => {
+    const air = createAir();
+    const guide = createGuide({
+      summary: '운동장에서 마음껏!',
+      activityRecommendation: '축구/달리기 추천',
+      actionItems: ['축구/달리기 추천', '교실 전면 환기', '야외 학습'],
+    });
+    const profile: ProfileInput = { ageGroup: 'infant', condition: 'none' };
+
+    const result = deriveDecisionSignals(air, guide, profile, 10);
+    const joinedItems = (result.aiGuide.actionItems || []).join(' ');
+
+    expect(joinedItems).not.toContain('축구');
+    expect(joinedItems).not.toContain('달리기');
+    expect(joinedItems).not.toContain('야외 학습');
+    expect(joinedItems).toContain('영아는 마스크 대신 실내 공기질 관리에 집중');
+    expect(result.aiGuide.activityRecommendation).toBe('실내 중심의 가벼운 활동을 추천해요');
+    expect(result.aiGuide.summary).toBe('실내 중심의 가벼운 활동을 추천해요');
+    expect(result.aiGuide.threeReason?.some((reason) => reason.includes('영아 안전 기준'))).toBe(true);
+  });
+
   it('질환/온습도 보정이 적용되면 위험도와 사유를 올린다', () => {
     const air = createAir({ pm25_value: 20, o3_value: 0.05, humidity: 25 });
     const guide = createGuide();
