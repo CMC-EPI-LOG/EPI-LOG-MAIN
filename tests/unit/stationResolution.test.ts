@@ -14,6 +14,30 @@ describe('stationResolution', () => {
     expect(candidates).toContain('개금동');
   });
 
+  it('전국 실패 샘플(인천/광주/대전/충남/전남/경북/경남)에 보정 힌트를 추가한다', () => {
+    expect(buildStationCandidates('인천광역시 연수구 송도동')).toEqual(
+      expect.arrayContaining(['송도', '동춘']),
+    );
+    expect(buildStationCandidates('광주광역시 북구 용봉동')).toEqual(
+      expect.arrayContaining(['운암동', '두암동']),
+    );
+    expect(buildStationCandidates('대전광역시 유성구 봉명동')).toEqual(
+      expect.arrayContaining(['구성동', '관평동']),
+    );
+    expect(buildStationCandidates('충청남도 천안시 서북구 불당동')).toEqual(
+      expect.arrayContaining(['성황동', '백석동']),
+    );
+    expect(buildStationCandidates('전라남도 여수시 학동')).toEqual(
+      expect.arrayContaining(['삼일동', '문수동']),
+    );
+    expect(buildStationCandidates('경상북도 포항시 남구 대잠동')).toEqual(
+      expect.arrayContaining(['장흥동', '대도동']),
+    );
+    expect(buildStationCandidates('경상남도 창원시 성산구 중앙동')).toEqual(
+      expect.arrayContaining(['성주동', '웅남동']),
+    );
+  });
+
   it('기존 분당구 힌트도 유지된다', () => {
     const candidates = buildStationCandidates('성남시 분당구');
     expect(candidates).toContain('정자동');
