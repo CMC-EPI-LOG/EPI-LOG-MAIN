@@ -59,14 +59,20 @@ export async function POST(request: Request) {
          );
     }
     
+    const depth1 = (region.region_1depth_name || '').trim();
     const depth2 = (region.region_2depth_name || '').trim();
     const depth3 = (region.region_3depth_name || '').trim();
-    const stationCandidate = [depth2, depth3].filter(Boolean).join(' ').trim() || depth2 || depth3;
+    const stationCandidate =
+      [depth1, depth2, depth3].filter(Boolean).join(' ').trim() ||
+      [depth2, depth3].filter(Boolean).join(' ').trim() ||
+      depth1 ||
+      depth2 ||
+      depth3;
 
     return NextResponse.json({
       address: region.address_name,
       regionName: depth3 || depth2, // 역삼1동 (없으면 강남구)
-      // 2depth만 쓰면 세종시처럼 광역 단위로 고정 템플릿 응답이 나올 수 있어 3depth를 함께 전달
+      // 시도/시군구/동을 함께 넘겨 동일 지명(중구/동구 등)으로 인한 타 시도 오매칭을 줄인다.
       stationCandidate,
     }, { headers: corsHeaders() });
 
