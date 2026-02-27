@@ -131,6 +131,50 @@ test('온보딩 수정 후 제출하면 프로필 값으로 재요청된다', as
   await expect.poll(() => sentProfiles.includes('infant')).toBeTruthy();
 });
 
+test('프로필 변경 중에는 전체 데이터 컴포넌트가 스켈레톤으로 전환된다', async ({ page }) => {
+  let delayedProfileRequestCount = 0;
+
+  await page.unroute('**/api/daily-report');
+  await page.route('**/api/daily-report', async (route) => {
+    const body = route.request().postDataJSON() as { profile?: { ageGroup?: string } };
+
+    if (body.profile?.ageGroup === 'infant') {
+      delayedProfileRequestCount += 1;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 1500);
+      });
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockReport),
+    });
+  });
+
+  await page.goto('/');
+
+  await page.getByTestId('settings-button').click();
+  await expect(page.getByTestId('onboarding-modal')).toBeVisible();
+  await page.getByRole('button', { name: /영아/ }).click();
+  await page.getByRole('button', { name: /천식/ }).click();
+  await page.getByTestId('onboarding-submit').click();
+
+  await expect(page.getByTestId('onboarding-modal')).toBeHidden();
+  await expect.poll(() => delayedProfileRequestCount).toBeGreaterThan(0);
+
+  await Promise.all([
+    expect(page.getByTestId('hero-loading')).toBeVisible(),
+    expect(page.getByTestId('checklist-loading')).toBeVisible(),
+    expect(page.getByTestId('action-sticker-loading')).toHaveCount(2),
+    expect(page.getByTestId('insight-loading')).toBeVisible(),
+    expect(page.getByTestId('datagrid-loading')).toBeVisible(),
+    expect(page.getByTestId('share-button-loading')).toBeVisible(),
+  ]);
+
+  await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible({ timeout: 10000 });
+});
+
 test('위치 버튼은 키보드로 모달을 열고 닫을 수 있다', async ({ page }) => {
   await page.goto('/');
 

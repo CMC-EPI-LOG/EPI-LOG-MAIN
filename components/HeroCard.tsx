@@ -100,18 +100,21 @@ export default function HeroCard({
         className="col-span-2 h-[42vh] min-h-[344px] bento-card relative overflow-hidden p-5 md:p-6"
         data-testid="hero-loading"
       >
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-pulse" />
+        <div className="absolute inset-0 skeleton-block opacity-45" />
         <div className="relative flex h-full flex-col justify-between">
           <div className="flex items-start justify-between">
-            <div className="h-8 w-28 rounded-lg border-2 border-black bg-gray-100 animate-pulse" />
-            <div className="h-10 w-16 rounded-xl border-2 border-black bg-gray-100 animate-pulse" />
+            <div className="h-8 w-28 rounded-lg border-2 border-black skeleton-block" />
+            <div className="h-10 w-16 rounded-xl border-2 border-black skeleton-block" />
           </div>
 
           <div className="flex flex-1 items-center justify-center">
-            <div className="h-52 w-52 rounded-full border border-gray-300 bg-gray-100 animate-pulse md:h-56 md:w-56" />
+            <div className="relative h-52 w-52 md:h-56 md:w-56">
+              <div className="absolute inset-0 rounded-full border border-gray-300 skeleton-block" />
+              <div className="absolute inset-6 rounded-full border border-gray-200 bg-gray-100/70" />
+            </div>
           </div>
 
-          <div className="mx-auto h-9 w-48 rounded-md bg-gray-200 animate-pulse md:h-10 md:w-56" />
+          <div className="mx-auto h-9 w-48 rounded-md skeleton-block md:h-10 md:w-56" />
           <p
             className="mt-2 text-center text-xs font-semibold text-gray-700 md:text-sm"
             data-testid="hero-loading-message"

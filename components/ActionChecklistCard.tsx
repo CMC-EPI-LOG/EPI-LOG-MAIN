@@ -8,12 +8,14 @@ interface ActionChecklistCardProps {
   actionItems: string[];
   delay?: number;
   grade?: string; // Air quality grade for theme colors
+  isLoading?: boolean;
 }
 
 export default function ActionChecklistCard({
   actionItems,
   delay = 0,
-  grade
+  grade,
+  isLoading = false,
 }: ActionChecklistCardProps) {
   
   // Get theme color based on air quality grade
@@ -53,6 +55,39 @@ export default function ActionChecklistCard({
     actionItems.length > 0
       ? checkedCount / actionItems.length
       : 0;
+
+  if (isLoading) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay, duration: 0.4 }}
+        className="col-span-2 bento-card p-4 md:p-6"
+        data-testid="checklist-loading"
+      >
+        <div className="mb-4 flex items-center gap-2.5">
+          <span className="rounded-md bg-green-100 px-1.5 py-1 text-base">✅</span>
+          <h3 className="text-lg font-black md:text-xl">아이를 위한 오늘의 액션</h3>
+        </div>
+
+        <div className="space-y-3">
+          {[0, 1, 2].map((index) => (
+            <div
+              key={index}
+              className="w-full rounded-xl border-2 border-black p-3.5 md:p-4 flex items-center gap-3 bg-white shadow-bento-sm"
+            >
+              <div className="h-7 w-7 rounded-md border-2 border-black skeleton-block" />
+              <div className="h-5 flex-1 rounded-md skeleton-block" />
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 h-2 w-full overflow-hidden rounded-full border-2 border-black bg-gray-200">
+          <div className="h-full w-1/3 skeleton-block" />
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div

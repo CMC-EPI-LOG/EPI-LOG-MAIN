@@ -447,6 +447,7 @@ export default function Home() {
       ? "네트워크 상태를 확인하고 다시 시도해주세요."
       : "잠시 후 다시 시도해주세요.";
   const isHeroLoading = isLoading || isLocationRefreshing || isProfileRefreshing;
+  const isProfileDataLoading = isProfileRefreshing;
   const refreshingMessage = isLocationRefreshing
     ? "새 주소 데이터로 업데이트 중..."
     : isProfileRefreshing
@@ -695,6 +696,7 @@ export default function Home() {
           actionItems={data?.aiGuide?.actionItems || []}
           delay={0.7}
           grade={data?.airQuality?.grade}
+          isLoading={isProfileDataLoading}
         />
 
         {/* Action Stickers - 2 column grid */}
@@ -705,6 +707,7 @@ export default function Home() {
           isPositive={data?.aiGuide?.maskRecommendation?.includes("필요 없어요") || false}
           fixedBadgeText={profile?.ageGroup === "infant" ? "영아 마스크 금지" : undefined}
           delay={0.8}
+          isLoading={isProfileDataLoading}
         />
         
         <ActionStickerCard
@@ -713,6 +716,7 @@ export default function Home() {
           statusText={data?.aiGuide?.activityRecommendation || "확인 중..."}
           isPositive={data?.aiGuide?.activityRecommendation?.includes("맘껏") || false}
           delay={0.9}
+          isLoading={isProfileDataLoading}
         />
 
         {/* Insight Drawer - Collapsible */}
@@ -731,18 +735,19 @@ export default function Home() {
           onRefreshData={freshnessMeta.needsRefresh ? handleFreshnessRefresh : undefined}
           isRefreshing={isRefreshing}
           delay={1.0}
+          isLoading={isProfileDataLoading}
         />
 
         {/* Data Grid - Hidden by default */}
-        {data?.airQuality && (
+        {(data?.airQuality || isProfileDataLoading) && (
           <DataGrid
             data={{
-              pm25: data.airQuality.pm25_value || 0,
-              pm10: data.airQuality.pm10_value || 0,
-              o3: data.airQuality.o3_value || 0,
-              temperature: data.airQuality.temp || 0,
-              humidity: data.airQuality.humidity || 0,
-              no2: data.airQuality.no2_value || 0,
+              pm25: data?.airQuality?.pm25_value || 0,
+              pm10: data?.airQuality?.pm10_value || 0,
+              o3: data?.airQuality?.o3_value || 0,
+              temperature: data?.airQuality?.temp || 0,
+              humidity: data?.airQuality?.humidity || 0,
+              no2: data?.airQuality?.no2_value || 0,
             }}
             reliabilityLabel={data?.reliability?.label}
             reliabilityDescription={data?.reliability?.description}
@@ -754,25 +759,27 @@ export default function Home() {
             onRefreshData={freshnessMeta.needsRefresh ? handleFreshnessRefresh : undefined}
             isRefreshing={isRefreshing}
             delay={1.1}
+            isLoading={isProfileDataLoading}
           />
         )}
         </div>
       </div>
 
       {/* Sticky Share Button */}
-      {data && (
+      {(data || isProfileDataLoading) && (
         <div className="fixed bottom-2 left-4 right-4 mx-auto max-w-2xl pb-[calc(env(safe-area-inset-bottom)+0.2rem)]">
           <ShareButton
             nickname={profile?.nickname}
             region={displayRegion}
             action={
-              data.aiGuide?.activityRecommendation?.includes("자제") ||
-              data.aiGuide?.activityRecommendation?.includes("X")
+              data?.aiGuide?.activityRecommendation?.includes("자제") ||
+              data?.aiGuide?.activityRecommendation?.includes("X")
                 ? "실내 놀이"
                 : "신나는 외출"
             }
-            summary={data.aiGuide?.summary}
-            reason={data.aiGuide?.threeReason?.[0]}
+            summary={data?.aiGuide?.summary}
+            reason={data?.aiGuide?.threeReason?.[0]}
+            isLoading={isProfileDataLoading}
           />
         </div>
       )}

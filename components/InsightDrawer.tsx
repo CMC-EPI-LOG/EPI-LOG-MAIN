@@ -22,6 +22,7 @@ interface InsightDrawerProps {
   onRefreshData?: () => void;
   isRefreshing?: boolean;
   delay?: number;
+  isLoading?: boolean;
 }
 
 export default function InsightDrawer({
@@ -39,11 +40,46 @@ export default function InsightDrawer({
   onRefreshData,
   isRefreshing = false,
   delay = 0,
+  isLoading = false,
 }: InsightDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isDetailExpanded, setIsDetailExpanded] = useState(false);
   const [feedback, setFeedback] = useState<'helpful' | 'not_helpful' | null>(null);
   const { logEvent } = useLogger();
+
+  if (isLoading) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay, duration: 0.4 }}
+        className="col-span-2 bento-card overflow-hidden"
+        data-testid="insight-loading"
+      >
+        <div className="flex w-full items-center justify-between p-5 md:p-6">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">🤔</span>
+            <h3 className="text-lg font-black md:text-xl">왜 그런가요?</h3>
+          </div>
+          <div className="h-5 w-5 rounded-full skeleton-block" />
+        </div>
+        <div className="space-y-4 border-t border-gray-100 px-5 pb-5 pt-4 md:px-6 md:pb-6">
+          <div className="h-4 w-48 rounded-full skeleton-block" />
+          <div className="card-muted p-4 space-y-2">
+            <div className="h-4 w-36 rounded-md skeleton-block" />
+            <div className="h-3 w-full rounded-md skeleton-block" />
+            <div className="h-3 w-[92%] rounded-md skeleton-block" />
+            <div className="h-3 w-[84%] rounded-md skeleton-block" />
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-2">
+            <div className="h-3 w-20 rounded-md skeleton-block" />
+            <div className="h-3 w-full rounded-md skeleton-block" />
+            <div className="h-3 w-[88%] rounded-md skeleton-block" />
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
 
   const hasSummary = Boolean(threeReason && threeReason.length > 0);
   const displayDetail = detailAnswer || reasoning || 'AI 선생님이 잠시 쉬고 있어요.';

@@ -11,6 +11,7 @@ interface ShareButtonProps {
   action?: string; // e.g. "실내 놀이", "마스크 필수"
   summary?: string;
   reason?: string;
+  isLoading?: boolean;
 }
 
 function toSingleLine(value?: string) {
@@ -33,13 +34,33 @@ function createShareId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export default function ShareButton({ nickname, region, action, summary, reason }: ShareButtonProps) {
+type NavigatorWithNativeShare = Navigator & {
+  share?: (data?: ShareData) => Promise<void>;
+};
+
+export default function ShareButton({ nickname, region, action, summary, reason, isLoading = false }: ShareButtonProps) {
+  const { logEvent } = useLogger();
   // Apps in Toss policy: don't send users outside of the miniapp environment.
   if (process.env.NEXT_PUBLIC_PLATFORM === 'TOSS') return null;
-  const { logEvent } = useLogger();
+
+  if (isLoading) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="flex w-full items-center justify-center gap-2 rounded-[20px] border-2 border-black bg-[#FEE500]/80 px-5 py-3 text-base font-black text-[#1A1A1A]/70 shadow-bento-sm"
+        aria-label="결과 공유 준비 중"
+        data-testid="share-button-loading"
+      >
+        <div className="h-5 w-5 rounded-full skeleton-block" />
+        <span>공유 문구 준비 중...</span>
+      </button>
+    );
+  }
 
   const handleShare = async () => {
-    const canNativeShare = typeof (navigator as any).share === 'function';
+    const nativeShareNavigator = navigator as NavigatorWithNativeShare;
+    const canNativeShare = typeof nativeShareNavigator.share === 'function';
     const shareMethod = canNativeShare ? 'native' : 'clipboard';
     const share_id = createShareId();
     void logEvent('share_link_created', { share_id });
@@ -59,7 +80,7 @@ export default function ShareButton({ nickname, region, action, summary, reason 
 
     if (canNativeShare) {
       try {
-        await (navigator as any).share(shareData);
+        await nativeShareNavigator.share?.(shareData);
         void logEvent('share_result', { method: 'native', result: 'success', share_id });
         trackCoreEvent('share_clicked', {
           station_name: region || 'unknown',
