@@ -124,6 +124,49 @@ function appendUnique(items: string[], next: string): string[] {
   return [...items, next];
 }
 
+const INFANT_UNSAFE_ACTION_KEYWORDS = [
+  '축구',
+  '달리기',
+  '운동장',
+  '야외학습',
+  '교실전면환기',
+  '조깅',
+  '등산',
+  '격렬운동',
+  '체육',
+];
+
+const INFANT_SAFE_ACTION_FALLBACKS = [
+  '실내 놀이 중심으로 활동 계획하기',
+  '짧은 환기 후 공기청정기 가동하기',
+  '귀가 후 손발 씻기와 보습 챙기기',
+];
+
+const INFANT_SAFE_ACTIVITY_RECOMMENDATION = '실내 중심의 가벼운 활동을 추천해요';
+
+function hasInfantUnsafeAction(text?: string): boolean {
+  if (!text) return false;
+  const compact = text.replace(/\s+/g, '');
+  return INFANT_UNSAFE_ACTION_KEYWORDS.some((keyword) => compact.includes(keyword));
+}
+
+function sanitizeInfantActionItems(actionItems: string[] | undefined): { items: string[]; removedUnsafe: boolean } {
+  const source = Array.isArray(actionItems) ? actionItems : [];
+  const filtered = source.filter((item) => !hasInfantUnsafeAction(item));
+  const removedUnsafe = filtered.length !== source.length;
+  const items = [...filtered];
+
+  if (removedUnsafe || items.length === 0) {
+    for (const fallback of INFANT_SAFE_ACTION_FALLBACKS) {
+      if (items.length >= 3) break;
+      if (items.includes(fallback)) continue;
+      items.push(fallback);
+    }
+  }
+
+  return { items, removedUnsafe };
+}
+
 function normalizeKnownConditions(profile: ProfileInput): KnownCondition[] {
   const candidates = [
     ...(Array.isArray(profile.conditions) ? profile.conditions : []),
@@ -223,6 +266,24 @@ export function deriveDecisionSignals(
 
   const isInfant = profile.ageGroup === 'infant';
   if (isInfant) {
+    const sanitized = sanitizeInfantActionItems(nextGuide.actionItems);
+    nextGuide.actionItems = sanitized.items;
+
+    if (hasInfantUnsafeAction(nextGuide.activityRecommendation)) {
+      nextGuide.activityRecommendation = INFANT_SAFE_ACTIVITY_RECOMMENDATION;
+    }
+
+    if (hasInfantUnsafeAction(nextGuide.summary)) {
+      nextGuide.summary = nextGuide.activityRecommendation || INFANT_SAFE_ACTIVITY_RECOMMENDATION;
+    }
+
+    if (sanitized.removedUnsafe) {
+      nextGuide.threeReason = appendUnique(
+        nextGuide.threeReason || [],
+        '영아 안전 기준으로 격한 실외 활동 문구를 제외했어요.',
+      );
+    }
+
     nextGuide.maskRecommendation = '마스크 착용 금지(영아)';
     nextGuide.actionItems = appendUnique(
       nextGuide.actionItems || [],
