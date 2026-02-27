@@ -1,0 +1,105 @@
+name: Nationwide Reliability Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: Fixture JSON path
+        required: false
+        default: scripts/fixtures/nationwide-stations.sample.json
+        type: string
+      enforce:
+        description: Enforce threshold (fail workflow on breach)
+        required: false
+        default: false
+        type: boolean
+      max_degraded_ratio:
+        description: Maximum allowed degraded ratio (0.0~1.0)
+        required: false
+        default: "0.20"
+        type: string
+  schedule:
+    # 06:30 KST daily
+    - cron: "30 21 * * *"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start app
+        run: |
+          PORT=4012 npm run dev > /tmp/next-dev.log 2>&1 &
+          echo "NEXT_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for app ready
+        run: |
+          for i in $(seq 1 120); do
+            if curl -sf "http://127.0.0.1:4012/api/air-quality-latest?stationName=%EC%A4%91%EA%B5%AC" >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Next app did not become ready in time"
+          tail -n 120 /tmp/next-dev.log || true
+          exit 1
+
+      - name: Run nationwide reliability smoke
+        run: |
+          FIXTURE="${{ github.event.inputs.fixture }}"
+          if [ -z "$FIXTURE" ]; then
+            FIXTURE="scripts/fixtures/nationwide-stations.sample.json"
+          fi
+
+          MAX_RATIO="${{ github.event.inputs.max_degraded_ratio }}"
+          if [ -z "$MAX_RATIO" ]; then
+            MAX_RATIO="0.20"
+          fi
+
+          ENFORCE="${{ github.event.inputs.enforce }}"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            ENFORCE="true"
+          fi
+
+          ARGS=(
+            --base-url "http://127.0.0.1:4012"
+            --fixture "$FIXTURE"
+            --out-dir "output/nationwide-reliability"
+            --max-degraded-ratio "$MAX_RATIO"
+          )
+
+          if [ "$ENFORCE" = "true" ]; then
+            ARGS+=(--enforce)
+          fi
+
+          node scripts/nationwide-reliability-smoke.mjs "${ARGS[@]}"
+
+      - name: Upload reliability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nationwide-reliability-report
+          path: output/nationwide-reliability/*
+          if-no-files-found: warn
+
+      - name: Stop app
+        if: always()
+        run: |
+          if [ -n "$NEXT_PID" ]; then
+            kill "$NEXT_PID" >/dev/null 2>&1 || true
+          fi
+          echo "--- next-dev.log (tail) ---"
+          tail -n 80 /tmp/next-dev.log || true

@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { buildReliabilityMeta, deriveDecisionSignals } from '@/lib/dailyReportDecision';
 import { corsHeaders } from '@/lib/cors';
+import {
+  buildStationCandidates,
+  inferExpectedSido,
+  isSidoMismatch,
+} from '@/lib/stationResolution';
 
 const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai.vercel.app';
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
@@ -13,14 +18,6 @@ const UNKNOWN_STATION_SIGNATURE = {
   pm10_value: 85,
   o3_value: 0.065,
   no2_value: 0.025,
-};
-
-const STATION_HINTS: Record<string, string[]> = {
-  '성남시 분당구': ['정자동', '수내동', '운중동'],
-  분당구: ['정자동', '수내동', '운중동'],
-  판교동: ['운중동', '정자동'],
-  세종시: ['보람동', '아름동', '한솔동', '조치원읍'],
-  세종특별자치시: ['보람동', '아름동', '한솔동', '조치원읍'],
 };
 
 export const runtime = 'nodejs';
@@ -189,61 +186,6 @@ function normalizeProfileInput(profile?: ProfileInput): Required<Pick<ProfileInp
   };
 }
 
-function normalizeDongName(name: string) {
-  return name.replace(/^(.+?)\d+동$/, '$1동');
-}
-
-function normalizeSubregionName(name: string) {
-  // Kakao depth3 often includes numeric suffixes like `역삼1동`, `효자동1가`.
-  // Normalize to maximize DB hit rate.
-  return name
-    .replace(/^(.+?)\d+동$/, '$1동')
-    .replace(/^(.+?)\d+가$/, '$1')
-    .replace(/^(.+?)\d+리$/, '$1리');
-}
-
-function buildStationCandidates(rawStation: string): string[] {
-  const cleaned = rawStation.trim().replace(/\s+/g, ' ');
-  const seen = new Set<string>();
-  const candidates: string[] = [];
-
-  const add = (value?: string) => {
-    if (!value) return;
-    const normalized = value.trim().replace(/\s+/g, ' ');
-    if (!normalized || seen.has(normalized)) return;
-    seen.add(normalized);
-    candidates.push(normalized);
-  };
-
-  add(cleaned);
-  add(cleaned.replace(/\s+/g, ''));
-  add(normalizeDongName(cleaned));
-  add(normalizeSubregionName(cleaned));
-
-  const tokens = cleaned.split(' ').filter(Boolean);
-  for (const token of tokens) {
-    add(token);
-    add(normalizeDongName(token));
-    add(normalizeSubregionName(token));
-  }
-
-  if (tokens.length >= 2) {
-    add(tokens[tokens.length - 1]);
-    add(tokens[tokens.length - 2]);
-    add(`${tokens[tokens.length - 2]} ${tokens[tokens.length - 1]}`);
-  }
-
-  const matchedHints = new Set<string>();
-  for (const [key, hints] of Object.entries(STATION_HINTS)) {
-    if (cleaned.includes(key) || tokens.includes(key)) {
-      hints.forEach((hint) => matchedHints.add(hint));
-    }
-  }
-  matchedHints.forEach((hint) => add(hint));
-
-  return candidates;
-}
-
 function isUnknownStationSignature(data: AirQualityRaw | null): boolean {
   if (!data) return false;
   return (
@@ -272,6 +214,7 @@ function isUnknownMetricSignature(
 
 async function fetchAirDataWithStationFallback(stationName: string): Promise<AirFetchResult> {
   const candidates = buildStationCandidates(stationName);
+  const expectedSido = inferExpectedSido(stationName);
   let fallbackResult: { data: AirQualityRaw; resolvedStation: string } | null = null;
   const unknownSignatureCandidates: string[] = [];
 
@@ -289,6 +232,14 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
 
       const parsed = (await response.json()) as AirQualityRaw;
       const resolvedStationName = parsed.stationName || candidate;
+
+      if (isSidoMismatch(expectedSido, parsed.sidoName ?? null)) {
+        console.warn(
+          `[BFF] Sido mismatch for candidate "${candidate}" (expected=${expectedSido}, resolved=${parsed.sidoName}), skipping`,
+        );
+        continue;
+      }
+
       if (!fallbackResult) {
         fallbackResult = { data: parsed, resolvedStation: resolvedStationName };
       }
