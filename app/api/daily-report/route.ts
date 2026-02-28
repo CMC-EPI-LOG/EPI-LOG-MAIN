@@ -215,7 +215,7 @@ function isUnknownMetricSignature(
 async function fetchAirDataWithStationFallback(stationName: string): Promise<AirFetchResult> {
   const candidates = buildStationCandidates(stationName);
   const expectedSido = inferExpectedSido(stationName);
-  let fallbackResult: { data: AirQualityRaw; resolvedStation: string } | null = null;
+  let fallbackResult: { data: AirQualityRaw; resolvedStation: string; candidate: string } | null = null;
   const unknownSignatureCandidates: string[] = [];
 
   for (const candidate of candidates) {
@@ -241,7 +241,7 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
       }
 
       if (!fallbackResult) {
-        fallbackResult = { data: parsed, resolvedStation: resolvedStationName };
+        fallbackResult = { data: parsed, resolvedStation: resolvedStationName, candidate };
       }
 
       if (isUnknownStationSignature(parsed)) {
@@ -254,8 +254,7 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
         data: parsed,
         resolvedStation: resolvedStationName,
         triedStations: candidates,
-        usedFallbackCandidate:
-          candidate !== candidates[0] || resolvedStationName !== candidates[0],
+        usedFallbackCandidate: candidate !== candidates[0],
         usedFallbackData: false,
         unknownSignatureCandidates,
       };
@@ -268,7 +267,7 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
     data: fallbackResult?.data || null,
     resolvedStation: fallbackResult?.resolvedStation || stationName,
     triedStations: candidates,
-    usedFallbackCandidate: Boolean(fallbackResult && fallbackResult.resolvedStation !== candidates[0]),
+    usedFallbackCandidate: Boolean(fallbackResult && fallbackResult.candidate !== candidates[0]),
     usedFallbackData: Boolean(fallbackResult),
     unknownSignatureCandidates,
   };

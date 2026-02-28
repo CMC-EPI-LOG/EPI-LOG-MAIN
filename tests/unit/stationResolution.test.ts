@@ -74,6 +74,21 @@ describe('stationResolution', () => {
     expect(candidates).toContain('수내동');
   });
 
+  it('보정 힌트가 있는 주소는 힌트 후보를 우선 순위로 둔다', () => {
+    const candidates = buildStationCandidates('경상북도 포항시 남구 대잠동');
+    expect(candidates[0]).toBe('장흥동');
+  });
+
+  it('강남구 주소는 구 단위 측정소 힌트를 우선 후보로 둔다', () => {
+    const candidates = buildStationCandidates('서울특별시 강남구 역삼동');
+    expect(candidates[0]).toBe('강남구');
+  });
+
+  it('보정 힌트가 없는 주소는 말단 행정동 후보를 우선 순위로 둔다', () => {
+    const candidates = buildStationCandidates('서울특별시 종로구 사직동');
+    expect(candidates[0]).toBe('사직동');
+  });
+
   it('요청 station query에서 기대 시도를 추론한다', () => {
     expect(inferExpectedSido('부산광역시 중구 영주동')).toBe('부산');
     expect(inferExpectedSido('서울특별시 강남구 역삼동')).toBe('서울');

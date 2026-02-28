@@ -2,6 +2,10 @@ const STATION_HINTS: Record<string, string[]> = {
   '성남시 분당구': ['정자동', '수내동', '운중동'],
   분당구: ['정자동', '수내동', '운중동'],
   판교동: ['운중동', '정자동'],
+  // 서울 일부 구는 동 단위보다 구 단위 측정소로 수렴하는 케이스가 있어 우선 힌트를 둔다.
+  '서울특별시 강남구': ['강남구', '역삼동'],
+  '서울 강남구': ['강남구', '역삼동'],
+  강남구: ['강남구', '역삼동'],
   세종시: ['보람동', '아름동', '한솔동', '조치원읍'],
   세종특별자치시: ['보람동', '아름동', '한솔동', '조치원읍'],
   // 전국 단위 신뢰성 스모크에서 DEGRADED가 발생한 지역 우선 보강
@@ -132,12 +136,39 @@ export function buildStationCandidates(rawStation: string): string[] {
     candidates.push(normalized);
   };
 
+  const tokens = cleaned.split(' ').filter(Boolean);
+  const matchedHints: string[] = [];
+  const matchedHintSet = new Set<string>();
+  for (const [key, hints] of Object.entries(STATION_HINTS)) {
+    if (cleaned.includes(key) || tokens.includes(key)) {
+      for (const hint of hints) {
+        if (matchedHintSet.has(hint)) continue;
+        matchedHintSet.add(hint);
+        matchedHints.push(hint);
+      }
+    }
+  }
+
+  const lastToken = tokens.length > 0 ? tokens[tokens.length - 1] : undefined;
+  const prevToken = tokens.length > 1 ? tokens[tokens.length - 2] : undefined;
+
+  // 1차 매칭 성공률 향상을 위해 (힌트 -> 행정동 축약명) 순서로 우선 시도한다.
+  matchedHints.forEach((hint) => add(hint));
+  if (lastToken) {
+    add(normalizeSubregionName(lastToken));
+    add(normalizeDongName(lastToken));
+    add(lastToken);
+  }
+  if (prevToken && lastToken) {
+    add(`${prevToken} ${normalizeSubregionName(lastToken)}`);
+    add(`${prevToken} ${lastToken}`);
+  }
+
   add(cleaned);
   add(cleaned.replace(/\s+/g, ''));
   add(normalizeDongName(cleaned));
   add(normalizeSubregionName(cleaned));
 
-  const tokens = cleaned.split(' ').filter(Boolean);
   for (const token of tokens) {
     add(token);
     add(normalizeDongName(token));
@@ -145,18 +176,8 @@ export function buildStationCandidates(rawStation: string): string[] {
   }
 
   if (tokens.length >= 2) {
-    add(tokens[tokens.length - 1]);
     add(tokens[tokens.length - 2]);
-    add(`${tokens[tokens.length - 2]} ${tokens[tokens.length - 1]}`);
   }
-
-  const matchedHints = new Set<string>();
-  for (const [key, hints] of Object.entries(STATION_HINTS)) {
-    if (cleaned.includes(key) || tokens.includes(key)) {
-      hints.forEach((hint) => matchedHints.add(hint));
-    }
-  }
-  matchedHints.forEach((hint) => add(hint));
 
   return candidates;
 }
