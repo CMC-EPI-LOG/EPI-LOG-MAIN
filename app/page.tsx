@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUserStore, type UserProfile } from "@/store/useUserStore";
 import HeroCard from "@/components/HeroCard";
-import ActionStickerCard from "@/components/ActionStickerCard";
 import InsightDrawer from "@/components/InsightDrawer";
 import DataGrid from "@/components/DataGrid";
 import OnboardingModal from "@/components/OnboardingModal";
@@ -12,7 +11,7 @@ import LocationHeader from "@/components/LocationHeader";
 import ShareButton from "@/components/ShareButton";
 import ActionChecklistCard from "@/components/ActionChecklistCard";
 import AiNotice from "@/components/AiNotice";
-import { Activity, Loader2, Settings, Shield } from "lucide-react";
+import { Loader2, Settings } from "lucide-react";
 import * as Sentry from "@sentry/nextjs";
 import toast from "react-hot-toast";
 import { getCharacterPath } from "@/lib/characterUtils";
@@ -696,26 +695,6 @@ export default function Home() {
           actionItems={data?.aiGuide?.actionItems || []}
           delay={0.7}
           grade={data?.airQuality?.grade}
-          isLoading={isProfileDataLoading}
-        />
-
-        {/* Action Stickers - 2 column grid */}
-        <ActionStickerCard
-          icon={Shield}
-          label="마스크"
-          statusText={data?.aiGuide?.maskRecommendation || "확인 중..."}
-          isPositive={data?.aiGuide?.maskRecommendation?.includes("필요 없어요") || false}
-          fixedBadgeText={profile?.ageGroup === "infant" ? "영아 마스크 금지" : undefined}
-          delay={0.8}
-          isLoading={isProfileDataLoading}
-        />
-        
-        <ActionStickerCard
-          icon={Activity}
-          label="활동"
-          statusText={data?.aiGuide?.activityRecommendation || "확인 중..."}
-          isPositive={data?.aiGuide?.activityRecommendation?.includes("맘껏") || false}
-          delay={0.9}
           isLoading={isProfileDataLoading}
         />
 

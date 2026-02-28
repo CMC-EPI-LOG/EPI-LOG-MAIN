@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserProfile } from '@/store/useUserStore';
-import { X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 
 interface OnboardingModalProps {
   isOpen: boolean;
@@ -247,9 +247,10 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
                       <button
                         type="button"
                         onClick={addCustomCondition}
-                        className="h-11 rounded-xl border-2 border-black bg-white px-3 text-sm font-black text-black transition hover:bg-black hover:text-white"
+                        className="h-11 w-11 shrink-0 rounded-xl border-2 border-black bg-white text-black transition hover:bg-black hover:text-white flex items-center justify-center"
+                        aria-label="질환 직접 입력 추가"
                       >
-                        추가
+                        <Plus size={18} strokeWidth={3} />
                       </button>
                     </div>
 
