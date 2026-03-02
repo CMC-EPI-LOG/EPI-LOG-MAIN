@@ -279,6 +279,7 @@ export default function Home() {
         // so that temp/humidity and new pollutant values are reflected in the UI.
         const baseGuide: AiGuideView = {
           summary: prev.aiGuide?.summary || "확인 중...",
+          csvReason: prev.aiGuide?.csvReason,
           detail: prev.aiGuide?.detail || "",
           threeReason: prev.aiGuide?.threeReason || [],
           detailAnswer: prev.aiGuide?.detailAnswer || prev.aiGuide?.detail || "",
@@ -735,6 +736,7 @@ export default function Home() {
         <HeroCard
           character={characterPath}
           decisionText={data?.aiGuide?.summary || "지금은 정보를 가져올 수 없어요 😢"}
+          reasonText={data?.aiGuide?.csvReason}
           grade={data?.airQuality?.grade || "NORMAL"}
           profileBadge={profileBadge}
           isLoading={isHeroLoading}

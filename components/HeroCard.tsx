@@ -8,6 +8,7 @@ import { getGradeBadgeColor, getGradeText } from "@/lib/colorUtils";
 interface HeroCardProps {
   character: string;
   decisionText: string;
+  reasonText?: string;
   grade: string;
   profileBadge: string;
   isLoading?: boolean;
@@ -36,9 +37,21 @@ const PROFILE_LOADING_MESSAGES = [
   "개인화 규칙을 반영해 추천 문구를 업데이트하고 있어요.",
 ];
 
+function getOutingStatusByGrade(grade: string): { label: string; colorClass: string } {
+  const normalized = (grade || "").toUpperCase();
+  if (normalized === "GOOD") {
+    return { label: "외출 O", colorClass: "text-emerald-600" };
+  }
+  if (normalized === "NORMAL") {
+    return { label: "외출 주의", colorClass: "text-amber-500" };
+  }
+  return { label: "외출 비권장", colorClass: "text-red-600" };
+}
+
 export default function HeroCard({
   character,
   decisionText,
+  reasonText,
   grade,
   profileBadge,
   isLoading = false,
@@ -48,6 +61,7 @@ export default function HeroCard({
   errorMessage = "잠시 후 다시 시도해주세요",
   onRetry,
 }: HeroCardProps) {
+  const outingStatus = useMemo(() => getOutingStatusByGrade(grade), [grade]);
   const loadingMessages = useMemo(() => {
     if (loadingCaption?.includes("연령/질환")) return PROFILE_LOADING_MESSAGES;
     if (loadingCaption?.includes("기준으로 데이터 업데이트")) return LOCATION_LOADING_MESSAGES;
@@ -182,15 +196,27 @@ export default function HeroCard({
         </div>
       </motion.div>
 
-      {/* Decision Text - Bottom, Extra Bold */}
-      <motion.h1
+      <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.6 }}
-        className="text-3xl md:text-4xl font-black text-center text-extra-bold leading-tight"
+        className="flex w-full flex-col items-center gap-1 text-center"
       >
-        {decisionText}
-      </motion.h1>
+        <h1
+          className={`text-3xl font-black leading-tight md:text-4xl ${outingStatus.colorClass}`}
+          data-testid="hero-outing-status"
+        >
+          ● {outingStatus.label}
+        </h1>
+        <p className="text-xl font-black leading-tight text-gray-900 md:text-2xl" data-testid="hero-main-text">
+          {decisionText}
+        </p>
+        {reasonText && (
+          <p className="max-w-[92%] text-sm font-semibold leading-snug text-gray-700 md:text-base" data-testid="hero-csv-reason">
+            {reasonText}
+          </p>
+        )}
+      </motion.div>
     </motion.div>
   );
 }

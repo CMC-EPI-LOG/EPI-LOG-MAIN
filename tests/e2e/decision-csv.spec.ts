@@ -277,7 +277,7 @@ test.describe('CSV Decision Matrix E2E', () => {
 
       await expect.poll(() => matchedProfileRequest, { timeout: 10_000 }).toBe(true);
 
-      await expect(page.getByRole('heading', { level: 1, name: row.메인문구 })).toBeVisible();
+      await expect(page.getByTestId('hero-main-text')).toHaveText(row.메인문구);
       await expect(page.getByText(row.행동1, { exact: true })).toBeVisible();
       await expect(page.getByText(row.행동2, { exact: true })).toBeVisible();
       await expect(page.getByText(row.행동3, { exact: true })).toBeVisible();
