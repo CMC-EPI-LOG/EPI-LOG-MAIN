@@ -63,6 +63,14 @@ const KNOWN_CONDITION_LABELS: Record<string, string> = {
   atopy: '아토피',
 };
 
+const HERO_CONDITION_OPTIONS = [
+  { value: 'none', label: '해당 없음', icon: '✨' },
+  { value: 'rhinitis', label: '비염', icon: '🤧' },
+  { value: 'asthma', label: '천식', icon: '😮‍💨' },
+  { value: 'atopy', label: '아토피', icon: '🩹' },
+] as const;
+const HERO_CONDITION_VALUE_SET = new Set(HERO_CONDITION_OPTIONS.map((option) => option.value));
+
 function normalizeKnownConditions(profile: UserProfile | null | undefined): string[] {
   if (!profile) return ['none'];
 
@@ -447,6 +455,62 @@ export default function Home() {
     fetchData(location, newProfile, "profile");
   };
 
+  const handleHeroConditionToggle = useCallback((conditionValue: string) => {
+    if (!HERO_CONDITION_VALUE_SET.has(conditionValue as (typeof HERO_CONDITION_OPTIONS)[number]['value'])) {
+      return;
+    }
+
+    const currentProfile: UserProfile = profile || {
+      nickname: "",
+      ageGroup: "elementary_low",
+      condition: "none",
+      conditions: ["none"],
+      customConditions: [],
+    };
+
+    const currentKnown = normalizeKnownConditions(currentProfile);
+    const hasCustom = Array.isArray(currentProfile.customConditions) && currentProfile.customConditions.length > 0;
+    let nextKnown: string[] = currentKnown;
+    let nextCustom = Array.isArray(currentProfile.customConditions) ? currentProfile.customConditions : [];
+
+    if (conditionValue === "none") {
+      nextKnown = ["none"];
+      nextCustom = [];
+    } else {
+      const withoutNone = currentKnown.filter((value) => value !== "none");
+      if (withoutNone.includes(conditionValue)) {
+        nextKnown = withoutNone.filter((value) => value !== conditionValue);
+      } else {
+        nextKnown = [...withoutNone, conditionValue];
+      }
+
+      if (nextKnown.length === 0 && !hasCustom) {
+        nextKnown = ["none"];
+      }
+    }
+
+    const primaryCondition = nextKnown.find((value) => value !== "none") || "none";
+    const nextProfile: UserProfile = {
+      ...currentProfile,
+      condition: primaryCondition,
+      conditions: nextKnown,
+      customConditions: nextCustom,
+    };
+
+    setProfile(nextProfile);
+    void logEvent("profile_changed", {
+      age_group: nextProfile.ageGroup,
+      condition: nextProfile.condition,
+      conditions: buildConditionContextValue(nextProfile),
+    });
+    trackCoreEvent("profile_changed", {
+      age_group: nextProfile.ageGroup,
+      condition: nextProfile.condition,
+      conditions: buildConditionContextValue(nextProfile),
+    });
+    fetchData(location, nextProfile, "profile");
+  }, [fetchData, location, logEvent, profile, setProfile]);
+
   const handleLocationSelect = useCallback((address: string, stationName: string) => {
     setDisplayRegion(address);
     void logAddressConsent(true);
@@ -495,6 +559,7 @@ export default function Home() {
     profile?.ageGroup === "toddler" ? "🧒 유아(3~6세)" :
     profile?.ageGroup === "elementary_low" ? "🎒 초등 저학년" :
     profile?.ageGroup === "elementary_high" ? "🏫 초등 고학년" : "🧑 청소년/성인";
+  const selectedKnownConditions = normalizeKnownConditions(profile);
 
   const isHeroError = !data && !isLoading && loadErrorKind !== null;
   const heroErrorTitle =
@@ -688,11 +753,6 @@ export default function Home() {
     >
       {/* Header */}
       <header className="max-w-2xl mx-auto flex items-center justify-between mb-4 pb-3 border-b-2 border-black">
-        <LocationHeader
-          currentLocation={displayRegion}
-          onLocationSelect={handleLocationSelect}
-        />
-        
         <div className="flex items-center gap-2 font-brand text-2xl font-black tracking-tight">
           <img
             src="/icon.png"
@@ -705,6 +765,11 @@ export default function Home() {
           />
           <span>아이숨</span>
         </div>
+
+        <LocationHeader
+          currentLocation={displayRegion}
+          onLocationSelect={handleLocationSelect}
+        />
         
         <button
           onClick={() => setIsModalOpen(true)}
@@ -737,8 +802,13 @@ export default function Home() {
           character={characterPath}
           decisionText={data?.aiGuide?.summary || "지금은 정보를 가져올 수 없어요 😢"}
           reasonText={data?.aiGuide?.csvReason}
+          maskRecommendation={data?.aiGuide?.maskRecommendation}
           grade={data?.airQuality?.grade || "NORMAL"}
           profileBadge={profileBadge}
+          conditionOptions={[...HERO_CONDITION_OPTIONS]}
+          selectedConditions={selectedKnownConditions}
+          onConditionToggle={handleHeroConditionToggle}
+          isConditionSelectorDisabled={isProfileRefreshing}
           isLoading={isHeroLoading}
           loadingCaption={heroLoadingCaption}
           isError={isHeroError}

@@ -106,6 +106,7 @@ test('핵심 대시보드가 렌더링된다', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.getByTestId('hero-outing-status')).toContainText('외출 비권장');
+  await expect(page.getByTestId('hero-mask-recommendation')).toContainText('KF80 마스크 착용 권장');
   await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible();
   await expect(page.getByText('초미세먼지 농도가 높아 호흡기 자극 위험이 있어 실외 활동 시간을 조절해야 해요.')).toBeVisible();
   await expect(page.getByText('아이를 위한 오늘의 액션')).toBeVisible();
@@ -140,14 +141,40 @@ test('온보딩 수정 후 제출하면 프로필 값으로 재요청된다', as
   await page.goto('/');
 
   await page.getByTestId('settings-button').click();
-  await expect(page.getByTestId('onboarding-modal')).toBeVisible();
+  const onboardingModal = page.getByTestId('onboarding-modal');
+  await expect(onboardingModal).toBeVisible();
 
-  await page.getByRole('button', { name: /영아/ }).click();
-  await page.getByRole('button', { name: /천식/ }).click();
+  await onboardingModal.getByRole('button', { name: /영아/ }).click();
+  await onboardingModal.getByRole('button', { name: /천식/ }).click();
   await page.getByTestId('onboarding-submit').click();
 
   await expect(page.getByTestId('onboarding-modal')).toBeHidden();
   await expect.poll(() => sentProfiles.includes('infant')).toBeTruthy();
+});
+
+test('히어로 카드 질환 빠른 선택은 profile.conditions로 재요청된다', async ({ page }) => {
+  const sentConditions: string[][] = [];
+
+  await page.unroute('**/api/daily-report');
+  await page.route('**/api/daily-report', async (route) => {
+    const body = route.request().postDataJSON() as { profile?: { conditions?: string[] } };
+    if (Array.isArray(body.profile?.conditions)) {
+      sentConditions.push(body.profile.conditions);
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockReport),
+    });
+  });
+
+  await page.goto('/');
+
+  await expect(page.getByTestId('hero-condition-asthma')).toBeVisible();
+  await page.getByTestId('hero-condition-asthma').click();
+
+  await expect.poll(() => sentConditions.some((conditions) => conditions.includes('asthma'))).toBeTruthy();
 });
 
 test('프로필 변경 중에는 전체 데이터 컴포넌트가 스켈레톤으로 전환된다', async ({ page }) => {
@@ -174,9 +201,10 @@ test('프로필 변경 중에는 전체 데이터 컴포넌트가 스켈레톤�
   await page.goto('/');
 
   await page.getByTestId('settings-button').click();
-  await expect(page.getByTestId('onboarding-modal')).toBeVisible();
-  await page.getByRole('button', { name: /영아/ }).click();
-  await page.getByRole('button', { name: /천식/ }).click();
+  const onboardingModal = page.getByTestId('onboarding-modal');
+  await expect(onboardingModal).toBeVisible();
+  await onboardingModal.getByRole('button', { name: /영아/ }).click();
+  await onboardingModal.getByRole('button', { name: /천식/ }).click();
   await page.getByTestId('onboarding-submit').click();
 
   await expect(page.getByTestId('onboarding-modal')).toBeHidden();
@@ -432,8 +460,10 @@ test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반
   await expect(page.getByText('12', { exact: true })).toBeVisible();
 
   await page.getByTestId('settings-button').click();
-  await page.getByRole('button', { name: /영아/ }).click();
-  await page.getByRole('button', { name: /천식/ }).click();
+  const onboardingModal = page.getByTestId('onboarding-modal');
+  await expect(onboardingModal).toBeVisible();
+  await onboardingModal.getByRole('button', { name: /영아/ }).click();
+  await onboardingModal.getByRole('button', { name: /천식/ }).click();
   await page.getByTestId('onboarding-submit').click();
 
   await expect(page.getByTestId('hero-loading')).toBeVisible({ timeout: 10000 });
@@ -502,8 +532,10 @@ test('영아 프로필에서도 마스크/활동 스티커 카드는 노출되�
   await expect(page.getByText('영아 마스크 금지', { exact: true })).toHaveCount(0);
 
   await page.getByTestId('settings-button').click();
-  await page.getByRole('button', { name: /영아/ }).click();
-  await page.getByRole('button', { name: /비염/ }).click();
+  const onboardingModal = page.getByTestId('onboarding-modal');
+  await expect(onboardingModal).toBeVisible();
+  await onboardingModal.getByRole('button', { name: /영아/ }).click();
+  await onboardingModal.getByRole('button', { name: /비염/ }).click();
   await page.getByTestId('onboarding-submit').click();
 
   await expect(page.getByText('영아 마스크 금지', { exact: true })).toHaveCount(0);
