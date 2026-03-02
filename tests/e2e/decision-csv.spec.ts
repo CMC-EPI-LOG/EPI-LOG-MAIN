@@ -211,14 +211,14 @@ async function selectProfile(page: Page, scenario: Scenario) {
   }
   await expect(onboardingModal).toBeVisible();
 
-  await page.getByRole('button', { name: ageButtonName(scenario.expectedAgeGroup) }).click();
-  await page.getByRole('button', { name: /해당 없음/ }).click();
+  await onboardingModal.getByRole('button', { name: ageButtonName(scenario.expectedAgeGroup) }).click();
+  await onboardingModal.getByRole('button', { name: /해당 없음/ }).click();
 
   if (scenario.expectedCondition !== 'none') {
-    await page.getByRole('button', { name: conditionButtonName(scenario.expectedCondition) }).click();
+    await onboardingModal.getByRole('button', { name: conditionButtonName(scenario.expectedCondition) }).click();
   }
 
-  await page.getByTestId('onboarding-submit').click();
+  await onboardingModal.getByTestId('onboarding-submit').click();
   await expect(onboardingModal).toBeHidden();
 }
 
