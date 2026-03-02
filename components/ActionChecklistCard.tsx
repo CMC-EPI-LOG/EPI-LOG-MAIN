@@ -65,8 +65,7 @@ export default function ActionChecklistCard({
         className="col-span-2 bento-card p-4 md:p-6"
         data-testid="checklist-loading"
       >
-        <div className="mb-4 flex items-center gap-2.5">
-          <span className="rounded-md bg-green-100 px-1.5 py-1 text-base">✅</span>
+        <div className="mb-4">
           <h3 className="text-lg font-black md:text-xl">아이를 위한 오늘의 액션</h3>
         </div>
 
@@ -97,8 +96,7 @@ export default function ActionChecklistCard({
       className="col-span-2 bento-card p-4 md:p-6"
     >
       {/* Header */}
-      <div className="mb-4 flex items-center gap-2.5">
-        <span className="rounded-md bg-green-100 px-1.5 py-1 text-base">✅</span>
+      <div className="mb-4">
         <h3 className="text-lg font-black md:text-xl">아이를 위한 오늘의 액션</h3>
       </div>
 

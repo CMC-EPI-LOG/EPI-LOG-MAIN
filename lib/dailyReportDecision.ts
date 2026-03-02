@@ -38,6 +38,7 @@ export interface AirFetchResult {
 
 export interface AiGuideView {
   summary: string;
+  csvReason?: string;
   detail: string;
   threeReason?: string[];
   detailAnswer?: string;

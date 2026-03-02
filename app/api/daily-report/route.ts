@@ -339,6 +339,9 @@ async function fetchAiData(stationName: string, aiProfile: { ageGroup: string; c
 
   const raw = (await response.json()) as Record<string, unknown>;
   console.log('[BFF] Raw AI Data:', JSON.stringify(raw, null, 2));
+  const csvReason = typeof raw.csv_reason === 'string'
+    ? raw.csv_reason
+    : (typeof raw.reason === 'string' ? raw.reason : undefined);
 
   if (
     raw.decision === 'Error' ||
@@ -355,6 +358,7 @@ async function fetchAiData(stationName: string, aiProfile: { ageGroup: string; c
 
   return {
     summary: typeof raw.decision === 'string' ? raw.decision : '오늘의 가이드를 준비 중이에요.',
+    csvReason,
     detail: typeof raw.reason === 'string' ? raw.reason : 'AI 설명을 준비 중이에요.',
     threeReason: Array.isArray(raw.three_reason) ? (raw.three_reason as string[]) : [],
     detailAnswer: typeof raw.detail_answer === 'string' ? raw.detail_answer : (raw.reason as string | undefined),
