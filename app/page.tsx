@@ -10,6 +10,7 @@ import InstallPrompt from "@/components/InstallPrompt";
 import LocationHeader from "@/components/LocationHeader";
 import ShareButton from "@/components/ShareButton";
 import ActionChecklistCard from "@/components/ActionChecklistCard";
+import ClothingCard from "@/components/ClothingCard";
 import AiNotice from "@/components/AiNotice";
 import { Loader2, Settings } from "lucide-react";
 import * as Sentry from "@sentry/nextjs";
@@ -43,6 +44,16 @@ interface DailyReportData {
   decisionSignals?: DecisionSignals;
   reliability?: ReliabilityMeta;
   timestamp?: string;
+}
+
+interface ClothingRecommendationData {
+  summary: string;
+  recommendation: string;
+  tips: string[];
+  comfortLevel?: string;
+  temperature: number;
+  humidity: number;
+  source?: string;
 }
 
 const KNOWN_CONDITION_LABELS: Record<string, string> = {
@@ -112,12 +123,56 @@ export default function Home() {
   const [loadErrorKind, setLoadErrorKind] = useState<LoadErrorKind>(null);
   const [isLocationRefreshing, setIsLocationRefreshing] = useState(false);
   const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
+  const [clothingData, setClothingData] = useState<ClothingRecommendationData | null>(null);
+  const [isClothingLoading, setIsClothingLoading] = useState(false);
   const activeControllerRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
+  const clothingRequestSeqRef = useRef(0);
   const activeFetchCauseRef = useRef<FetchCause>("initial");
   const loadingStartedAtRef = useRef<number | null>(null);
   const lastFallbackExposeKeyRef = useRef<string | null>(null);
   const airLatestInFlightRef = useRef(false);
+
+  const fetchClothingRecommendation = useCallback(async (
+    temperature?: number,
+    humidity?: number,
+  ) => {
+    const requestSeq = ++clothingRequestSeqRef.current;
+    const safeTemperature = typeof temperature === "number" ? temperature : 22;
+    const safeHumidity = typeof humidity === "number" ? humidity : 45;
+
+    setIsClothingLoading(true);
+    try {
+      const res = await fetch("/api/clothing-recommendation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          temperature: safeTemperature,
+          humidity: safeHumidity,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to fetch clothing recommendation");
+
+      const result = (await res.json()) as ClothingRecommendationData;
+      if (requestSeq !== clothingRequestSeqRef.current) return;
+      setClothingData(result);
+    } catch (error) {
+      if (requestSeq !== clothingRequestSeqRef.current) return;
+      console.error("[UI] Clothing recommendation failed:", error);
+      setClothingData({
+        summary: "현재 날씨 기준으로 겉옷을 한 겹 준비해 주세요.",
+        recommendation: "가벼운 레이어드 복장",
+        tips: ["실내외 온도차에 대비해 탈착 가능한 겉옷을 추천해요."],
+        comfortLevel: "UNKNOWN",
+        temperature: Number(safeTemperature),
+        humidity: Number(safeHumidity),
+        source: "ui-fallback",
+      });
+    } finally {
+      if (requestSeq !== clothingRequestSeqRef.current) return;
+      setIsClothingLoading(false);
+    }
+  }, []);
 
   const fetchData = useCallback(async (
     currentLocation: typeof location,
@@ -162,6 +217,7 @@ export default function Home() {
       const result = (await res.json()) as DailyReportData;
       if (requestSeq !== requestSeqRef.current) return;
       setData(result);
+      void fetchClothingRecommendation(result.airQuality?.temp, result.airQuality?.humidity);
       setLoadErrorKind(null);
     } catch (error) {
       if (requestSeq !== requestSeqRef.current) return;
@@ -192,7 +248,7 @@ export default function Home() {
       setIsLocationRefreshing(false);
       setIsProfileRefreshing(false);
     }
-  }, [data]);
+  }, [data, fetchClothingRecommendation]);
 
   const refreshAirLatest = useCallback(async () => {
     const stationName = location.stationName?.trim();
@@ -259,12 +315,13 @@ export default function Home() {
           timestamp: latest.timestamp || prev.timestamp,
         };
       });
+      void fetchClothingRecommendation(latestAirQuality.temp, latestAirQuality.humidity);
     } catch (error) {
       console.error("[UI] Air latest refresh failed:", error);
     } finally {
       airLatestInFlightRef.current = false;
     }
-  }, [location.stationName, profile]);
+  }, [fetchClothingRecommendation, location.stationName, profile]);
 
   useEffect(() => {
     return () => {
@@ -447,6 +504,7 @@ export default function Home() {
       : "잠시 후 다시 시도해주세요.";
   const isHeroLoading = isLoading || isLocationRefreshing || isProfileRefreshing;
   const isProfileDataLoading = isProfileRefreshing;
+  const isClothingCardLoading = isProfileDataLoading || isClothingLoading;
   const refreshingMessage = isLocationRefreshing
     ? "새 주소 데이터로 업데이트 중..."
     : isProfileRefreshing
@@ -698,6 +756,17 @@ export default function Home() {
           isLoading={isProfileDataLoading}
         />
 
+        {(data?.airQuality || isClothingCardLoading) && (
+          <ClothingCard
+            summary={clothingData?.summary}
+            recommendation={clothingData?.recommendation}
+            tips={clothingData?.tips}
+            temperature={clothingData?.temperature ?? data?.airQuality?.temp}
+            humidity={clothingData?.humidity ?? data?.airQuality?.humidity}
+            delay={0.85}
+            isLoading={isClothingCardLoading}
+          />
+        )}
         {/* Insight Drawer - Collapsible */}
         <InsightDrawer
           threeReason={data?.aiGuide?.threeReason}
