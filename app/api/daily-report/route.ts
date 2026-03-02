@@ -92,6 +92,7 @@ interface AirFetchResult {
 
 interface AiGuideView {
   summary: string;
+  csvReason?: string;
   detail: string;
   threeReason?: string[];
   detailAnswer?: string;
