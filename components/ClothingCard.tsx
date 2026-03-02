@@ -38,7 +38,7 @@ export default function ClothingCard({
         data-testid="clothing-card-loading"
       >
         <div className="mb-4 flex items-center gap-2.5">
-          <span className="rounded-md bg-sky-100 px-1.5 py-1 text-base">👕</span>
+          <span className="text-base">👕</span>
           <h3 className="text-lg font-black md:text-xl">오늘의 옷차림</h3>
         </div>
 
@@ -74,7 +74,7 @@ export default function ClothingCard({
     >
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <span className="rounded-md bg-sky-100 px-1.5 py-1 text-base">👕</span>
+          <span className="text-base">👕</span>
           <h3 className="text-lg font-black md:text-xl">오늘의 옷차림</h3>
         </div>
         <div className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
