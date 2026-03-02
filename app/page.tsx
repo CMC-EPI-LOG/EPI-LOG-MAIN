@@ -767,7 +767,6 @@ export default function Home() {
             isLoading={isClothingCardLoading}
           />
         )}
-
         {/* Insight Drawer - Collapsible */}
         <InsightDrawer
           threeReason={data?.aiGuide?.threeReason}

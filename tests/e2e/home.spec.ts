@@ -474,16 +474,37 @@ test('요청 타임아웃 후 재시도로 복구된다', async ({ page }) => {
   await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible();
 });
 
-test('영아 프로필에서도 삭제된 마스크 스티커 배지는 노출되지 않는다', async ({ page }) => {
+test('영아 프로필에서도 마스크/활동 스티커 카드는 노출되지 않고 인사이트 칩으로만 표시된다', async ({ page }) => {
+  await page.unroute('**/api/daily-report');
+  await page.route('**/api/daily-report', async (route) => {
+    const body = route.request().postDataJSON() as { profile?: { ageGroup?: string } };
+    const isInfant = body.profile?.ageGroup === 'infant';
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...mockReport,
+        decisionSignals: {
+          ...mockReport.decisionSignals,
+          infantMaskBanApplied: isInfant,
+        },
+      }),
+    });
+  });
   await page.goto('/');
-  await expect(page.getByText('영아 마스크 금지')).toHaveCount(0);
+  await expect(page.getByText('마스크', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('활동', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('영아 마스크 금지', { exact: true })).toHaveCount(0);
 
   await page.getByTestId('settings-button').click();
   await page.getByRole('button', { name: /영아/ }).click();
   await page.getByRole('button', { name: /비염/ }).click();
   await page.getByTestId('onboarding-submit').click();
 
-  await expect(page.getByText('영아 마스크 금지')).toHaveCount(0);
+  await expect(page.getByText('영아 마스크 금지', { exact: true })).toHaveCount(0);
+  await page.getByTestId('insight-toggle').click();
+  await expect(page.getByText('영아 마스크 금지 적용')).toBeVisible();
 });
 
 test('왜 그런가요 하단 VOC 1탭 피드백이 동작한다', async ({ page }) => {
