@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { UserProfile } from '@/store/useUserStore';
-import { Plus, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { X } from 'lucide-react';
+import { type UserProfile } from '@/store/useUserStore';
 
 interface OnboardingModalProps {
   isOpen: boolean;
@@ -12,12 +12,7 @@ interface OnboardingModalProps {
   currentProfile: UserProfile | null;
 }
 
-const CONDITION_OPTIONS = [
-  { value: 'none', label: '해당 없음', icon: '✨' },
-  { value: 'rhinitis', label: '알레르기 비염', icon: '🤧' },
-  { value: 'asthma', label: '천식', icon: '😮‍💨' },
-  { value: 'atopy', label: '아토피', icon: '🩹' },
-] as const;
+const DEFAULT_AGE_GROUP = 'elementary_low';
 
 function dedupeValues(values: string[]): string[] {
   const seen = new Set<string>();
@@ -34,102 +29,34 @@ function dedupeValues(values: string[]): string[] {
   return next;
 }
 
-function getInitialConditions(profile: UserProfile | null): string[] {
-  if (!profile) return ['none'];
-
-  const fromProfile = [
-    ...(Array.isArray(profile.conditions) ? profile.conditions : []),
-    ...(typeof profile.condition === 'string' ? [profile.condition] : []),
-  ];
-
-  const knownValues = new Set(CONDITION_OPTIONS.map((option) => option.value));
-  const normalized = dedupeValues(fromProfile.map((value) => value.toLowerCase())).filter((value) =>
-    knownValues.has(value as (typeof CONDITION_OPTIONS)[number]['value']),
-  );
-  const withoutNone = normalized.filter((value) => value !== 'none');
-
-  if (withoutNone.length > 0) return withoutNone;
-  if (normalized.includes('none')) return ['none'];
-  if (Array.isArray(profile.customConditions) && profile.customConditions.length > 0) return [];
-  return ['none'];
-}
-
-function getInitialCustomConditions(profile: UserProfile | null): string[] {
-  if (!profile || !Array.isArray(profile.customConditions)) return [];
-  return dedupeValues(profile.customConditions).slice(0, 5);
-}
-
 export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProfile }: OnboardingModalProps) {
-  const [ageGroup, setAgeGroup] = useState(currentProfile?.ageGroup || 'elementary_low');
-  const [conditions, setConditions] = useState<string[]>(getInitialConditions(currentProfile));
-  const [customConditions, setCustomConditions] = useState<string[]>(getInitialCustomConditions(currentProfile));
-  const [customConditionInput, setCustomConditionInput] = useState('');
-
-  const toggleCondition = (value: string) => {
-    if (value === 'none') {
-      setConditions(['none']);
-      setCustomConditions([]);
-      return;
-    }
-
-    setConditions((prev) => {
-      const withoutNone = prev.filter((condition) => condition !== 'none');
-      if (withoutNone.includes(value)) {
-        const next = withoutNone.filter((condition) => condition !== value);
-        if (next.length === 0 && customConditions.length === 0) return ['none'];
-        return next;
-      }
-
-      return [...withoutNone, value];
-    });
-  };
-
-  const addCustomCondition = () => {
-    const next = customConditionInput.trim();
-    if (!next) return;
-
-    const isDuplicate = customConditions.some(
-      (condition) => condition.toLowerCase() === next.toLowerCase(),
-    );
-    if (isDuplicate) {
-      setCustomConditionInput('');
-      return;
-    }
-
-    setCustomConditions((prev) => [...prev, next].slice(0, 5));
-    setConditions((prev) => prev.filter((condition) => condition !== 'none'));
-    setCustomConditionInput('');
-  };
-
-  const toggleCustomCondition = (value: string) => {
-    const nextCustomConditions = customConditions.filter((condition) => condition !== value);
-    setCustomConditions(nextCustomConditions);
-
-    if (nextCustomConditions.length === 0) {
-      setConditions((prev) => {
-        const hasKnownCondition = prev.some((condition) => condition !== 'none');
-        return hasKnownCondition ? prev : ['none'];
-      });
-    }
-  };
-
+  const [ageGroup, setAgeGroup] = useState(currentProfile?.ageGroup || DEFAULT_AGE_GROUP);
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const knownConditions = conditions.filter((condition) => condition !== 'none');
-    const normalizedConditions =
-      knownConditions.length > 0
-        ? knownConditions
+    const knownSource = [
+      ...(Array.isArray(currentProfile?.conditions) ? currentProfile.conditions : []),
+      ...(typeof currentProfile?.condition === 'string' ? [currentProfile.condition] : []),
+    ];
+    const normalizedKnown = dedupeValues(knownSource.map((value) => value.toLowerCase())).filter(Boolean);
+    const customConditions = dedupeValues(
+      Array.isArray(currentProfile?.customConditions) ? currentProfile.customConditions : [],
+    ).slice(0, 5);
+    const withoutNone = normalizedKnown.filter((condition) => condition !== 'none');
+    const finalKnown = withoutNone.length > 0 ? withoutNone : normalizedKnown.includes('none') ? ['none'] : [];
+    const finalConditions =
+      finalKnown.length > 0
+        ? finalKnown
         : customConditions.length > 0
           ? []
           : ['none'];
-    const primaryCondition = normalizedConditions.find((condition) => condition !== 'none') || 'none';
+    const primaryCondition = finalConditions.find((condition) => condition !== 'none') || 'none';
 
     onSubmit({
-      nickname: '',
+      nickname: currentProfile?.nickname || '',
       ageGroup,
       condition: primaryCondition,
-      conditions: normalizedConditions,
+      conditions: finalConditions,
       customConditions,
     });
     onClose();
@@ -161,10 +88,10 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
               {/* Header */}
               <div className="text-center">
                 <h2 className="text-3xl font-black mb-2">
-                  <span className="highlighter-yellow">아이 정보 입력</span>
+                  <span className="highlighter-yellow">아이 연령 설정</span>
                 </h2>
                 <p className="text-sm text-gray-600">
-                  맞춤 공기질 정보를 위해 알려주세요
+                  설정 모달에서는 연령만 변경해요
                 </p>
               </div>
             </div>
@@ -201,79 +128,6 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
                     ))}
                   </div>
                 </div>
-
-                {/* Health Condition Section */}
-                <div>
-                  <label className="block font-black text-lg mb-4">
-                    <span className="highlighter-yellow">건강 상태 (중복 선택 가능)</span>
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {CONDITION_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => toggleCondition(option.value)}
-                        className={`p-4 rounded-[20px] border-[3px] font-bold transition-all text-center ${
-                          conditions.includes(option.value)
-                            ? 'bg-black text-white border-black shadow-bento-sm'
-                            : 'bg-gray-50 text-gray-700 border-gray-300 hover:border-black hover:shadow-bento-sm'
-                        }`}
-                      >
-                        <div className="text-2xl mb-1">{option.icon}</div>
-                        <div className="text-sm">{option.label}</div>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-xs font-semibold text-gray-600">
-                    여러 항목을 함께 선택할 수 있어요.
-                  </p>
-
-                  <div className="mt-4 rounded-[20px] border-[3px] border-gray-200 bg-gray-50 p-3">
-                    <p className="mb-2 text-sm font-black text-gray-700">직접 입력</p>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={customConditionInput}
-                        onChange={(event) => setCustomConditionInput(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key !== 'Enter') return;
-                          event.preventDefault();
-                          addCustomCondition();
-                        }}
-                        placeholder="예: 기관지 과민증"
-                        maxLength={20}
-                        className="h-11 flex-1 rounded-xl border-2 border-gray-300 bg-white px-3 text-sm font-semibold text-gray-900 outline-none transition focus:border-black"
-                      />
-                      <button
-                        type="button"
-                        onClick={addCustomCondition}
-                        className="h-11 w-11 shrink-0 rounded-xl border-2 border-black bg-white text-black transition hover:bg-black hover:text-white flex items-center justify-center"
-                        aria-label="질환 직접 입력 추가"
-                      >
-                        <Plus size={18} strokeWidth={3} />
-                      </button>
-                    </div>
-
-                    {customConditions.length > 0 && (
-                      <div className="mt-3 grid grid-cols-2 gap-3">
-                        {customConditions.map((condition) => (
-                          <button
-                            key={condition}
-                            type="button"
-                            onClick={() => toggleCustomCondition(condition)}
-                            className="rounded-[20px] border-[3px] border-black bg-black p-4 text-center font-bold text-white shadow-bento-sm transition-all hover:-translate-y-0.5"
-                          >
-                            <div className="mb-1 text-2xl">✍️</div>
-                            <div className="line-clamp-2 break-words text-sm">{condition}</div>
-                            <div className="mt-1 text-[11px] font-semibold text-white/80">
-                              탭해서 해제
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
               </form>
             </div>
 
@@ -285,8 +139,8 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
                 className="w-full py-5 bg-[#FEE500] text-black font-black text-xl rounded-[24px] border-[3px] border-black shadow-bento hover:bg-[#FDD835] transition-all active:translate-y-1 active:shadow-none flex items-center justify-center gap-2"
                 data-testid="onboarding-submit"
               >
-                결과 보러 가기
-                <span className="text-2xl">🚀</span>
+                연령 저장
+                <span className="text-2xl">👶</span>
               </button>
             </div>
           </motion.div>

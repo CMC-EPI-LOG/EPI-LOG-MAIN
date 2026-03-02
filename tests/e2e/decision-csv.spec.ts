@@ -204,6 +204,8 @@ function buildDailyReportPayload(scenario: Scenario) {
 async function selectProfile(page: Page, scenario: Scenario) {
   const settingsButton = page.getByTestId('settings-button');
   const onboardingModal = page.getByTestId('onboarding-modal');
+  const conditionTrigger = page.getByTestId('hero-condition-open');
+  const conditionModal = page.getByTestId('condition-modal');
 
   await settingsButton.click();
   if (!(await onboardingModal.isVisible())) {
@@ -212,14 +214,19 @@ async function selectProfile(page: Page, scenario: Scenario) {
   await expect(onboardingModal).toBeVisible();
 
   await onboardingModal.getByRole('button', { name: ageButtonName(scenario.expectedAgeGroup) }).click();
-  await onboardingModal.getByRole('button', { name: /해당 없음/ }).click();
-
-  if (scenario.expectedCondition !== 'none') {
-    await onboardingModal.getByRole('button', { name: conditionButtonName(scenario.expectedCondition) }).click();
-  }
-
   await onboardingModal.getByTestId('onboarding-submit').click();
   await expect(onboardingModal).toBeHidden();
+
+  await expect(conditionTrigger).toBeVisible();
+  await conditionTrigger.click();
+  await expect(conditionModal).toBeVisible();
+
+  await conditionModal.getByRole('button', { name: /해당 없음/ }).click();
+  if (scenario.expectedCondition !== 'none') {
+    await conditionModal.getByRole('button', { name: conditionButtonName(scenario.expectedCondition) }).click();
+  }
+  await conditionModal.getByTestId('condition-submit').click();
+  await expect(conditionModal).toBeHidden();
 }
 
 test.describe('CSV Decision Matrix E2E', () => {
