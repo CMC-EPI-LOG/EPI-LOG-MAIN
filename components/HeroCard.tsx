@@ -11,11 +11,12 @@ interface HeroCardProps {
   reasonText?: string;
   maskRecommendation?: string;
   grade: string;
-  profileBadge: string;
-  conditionOptions?: Array<{ value: string; label: string; icon: string }>;
-  selectedConditions?: string[];
-  onConditionToggle?: (condition: string) => void;
-  isConditionSelectorDisabled?: boolean;
+  ageSummary: string;
+  conditionSummary?: string;
+  onOpenAgeModal?: () => void;
+  isAgeButtonDisabled?: boolean;
+  onOpenConditionModal?: () => void;
+  isConditionButtonDisabled?: boolean;
   isLoading?: boolean;
   loadingCaption?: string;
   isError?: boolean;
@@ -71,11 +72,12 @@ export default function HeroCard({
   reasonText,
   maskRecommendation,
   grade,
-  profileBadge,
-  conditionOptions = [],
-  selectedConditions = [],
-  onConditionToggle,
-  isConditionSelectorDisabled = false,
+  ageSummary,
+  conditionSummary,
+  onOpenAgeModal,
+  isAgeButtonDisabled = false,
+  onOpenConditionModal,
+  isConditionButtonDisabled = false,
   isLoading = false,
   loadingCaption,
   isError = false,
@@ -83,7 +85,6 @@ export default function HeroCard({
   errorMessage = "잠시 후 다시 시도해주세요",
   onRetry,
 }: HeroCardProps) {
-  const selectedConditionSet = useMemo(() => new Set(selectedConditions), [selectedConditions]);
   const outingStatus = useMemo(() => getOutingStatusByGrade(grade), [grade]);
   const showMaskRecommendation = useMemo(() => shouldShowMaskRecommendation(grade), [grade]);
   const maskRecommendationText = useMemo(
@@ -116,7 +117,7 @@ export default function HeroCard({
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="col-span-2 h-[42vh] min-h-[344px] bento-card flex flex-col items-center justify-center p-7 text-center"
+        className="col-span-2 min-h-[380px] bento-card flex flex-col items-center justify-center p-7 text-center md:min-h-[440px]"
         data-testid="hero-error"
       >
         <div className="text-8xl mb-4">😎</div>
@@ -139,7 +140,7 @@ export default function HeroCard({
   if (isLoading) {
     return (
       <div
-        className="col-span-2 h-[42vh] min-h-[344px] bento-card relative overflow-hidden p-5 md:p-6"
+        className="col-span-2 min-h-[380px] bento-card relative overflow-hidden p-5 md:min-h-[440px] md:p-6"
         data-testid="hero-loading"
       >
         <div className="absolute inset-0 skeleton-block opacity-45" />
@@ -181,53 +182,46 @@ export default function HeroCard({
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.5 }}
-      className="col-span-2 h-[42vh] min-h-[344px] bento-card relative flex flex-col items-center justify-between p-5 md:p-6"
+      className="col-span-2 min-h-[460px] bento-card relative flex flex-col items-center p-5 md:min-h-[540px] md:p-6"
     >
       <div className="absolute left-5 top-5 z-10 md:left-6 md:top-6">
-        {/* Profile Badge - Top Left, INSIDE card (diary tab style) */}
-        <motion.div
-          initial={{ x: -50, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="w-fit rounded-lg border-2 border-black bg-white px-3 py-1.5 text-xs font-bold shadow-bento-sm"
-          data-testid="hero-age-badge"
-        >
-          {profileBadge}
-        </motion.div>
+        <div className="flex w-[min(270px,calc(100vw-88px))] flex-col gap-2">
+          {onOpenAgeModal && (
+            <motion.button
+              type="button"
+              initial={{ x: -50, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              onClick={onOpenAgeModal}
+              disabled={isAgeButtonDisabled}
+              className={`inline-flex w-full items-center justify-start gap-1.5 rounded-xl border-2 border-black bg-white/95 px-3 py-1.5 text-xs font-black shadow-bento-sm transition hover:bg-black hover:text-white ${
+                isAgeButtonDisabled ? "cursor-not-allowed opacity-60" : ""
+              }`}
+              data-testid="hero-age-open"
+            >
+              <span aria-hidden="true">👶</span>
+              <span className="min-w-0 truncate text-left">{ageSummary}</span>
+            </motion.button>
+          )}
 
-        {conditionOptions.length > 0 && onConditionToggle && (
-          <motion.div
-            initial={{ x: -30, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ delay: 0.25 }}
-            className="mt-2 max-w-[250px] rounded-xl border-2 border-black bg-white/95 p-2 shadow-bento-sm"
-            data-testid="hero-condition-selector"
-          >
-            <p className="text-[11px] font-black text-gray-700">질환 빠른 선택</p>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {conditionOptions.map((option) => {
-                const isActive = selectedConditionSet.has(option.value);
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => onConditionToggle(option.value)}
-                    disabled={isConditionSelectorDisabled}
-                    className={`inline-flex items-center gap-1 rounded-full border-2 px-2.5 py-1 text-[11px] font-black transition ${
-                      isActive
-                        ? "border-black bg-black text-white"
-                        : "border-gray-300 bg-gray-50 text-gray-700 hover:border-black hover:text-black"
-                    } ${isConditionSelectorDisabled ? "cursor-not-allowed opacity-60" : ""}`}
-                    data-testid={`hero-condition-${option.value}`}
-                  >
-                    <span aria-hidden="true">{option.icon}</span>
-                    <span>{option.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </motion.div>
-        )}
+          {onOpenConditionModal && (
+            <motion.button
+              type="button"
+              initial={{ x: -30, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.25 }}
+              onClick={onOpenConditionModal}
+              disabled={isConditionButtonDisabled}
+              className={`inline-flex w-full items-center justify-start gap-1.5 rounded-xl border-2 border-black bg-white/95 px-3 py-1.5 text-xs font-black shadow-bento-sm transition hover:bg-black hover:text-white ${
+                isConditionButtonDisabled ? "cursor-not-allowed opacity-60" : ""
+              }`}
+              data-testid="hero-condition-open"
+            >
+              <span aria-hidden="true">🩺</span>
+              <span className="min-w-0 truncate text-left">{conditionSummary || "질환: 해당 없음"}</span>
+            </motion.button>
+          )}
+        </div>
       </div>
 
       {/* Grade Badge - Top Right, INSIDE card (stamp/price tag style) */}
@@ -245,11 +239,11 @@ export default function HeroCard({
         initial={{ scale: 0, rotate: -10 }}
         animate={{ scale: 1, rotate: 0 }}
         transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
-        className="flex-1 flex items-center justify-center"
+        className="mt-12 flex flex-1 items-center justify-center md:mt-8"
       >
-        <div className="relative h-56 w-56 md:h-60 md:w-60">
+        <div className="relative h-44 w-44 md:h-52 md:w-52">
           {/* Character with Glow */}
-          <div className="relative h-56 w-56 character-glow md:h-60 md:w-60">
+          <div className="relative h-44 w-44 character-glow md:h-52 md:w-52">
             <Image
               src={character}
               alt="Air quality character"
@@ -265,13 +259,13 @@ export default function HeroCard({
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.6 }}
-        className="flex w-full flex-col items-center gap-1 text-center"
+        className="mt-2 flex w-full flex-col items-center gap-2 text-center"
       >
         <h1
           className={`text-3xl font-black leading-tight md:text-4xl ${outingStatus.colorClass}`}
           data-testid="hero-outing-status"
         >
-          ● {outingStatus.label}
+          {outingStatus.label}
         </h1>
         {showMaskRecommendation && (
           <p
@@ -286,7 +280,10 @@ export default function HeroCard({
           {decisionText}
         </p>
         {reasonText && (
-          <p className="max-w-[92%] text-sm font-semibold leading-snug text-gray-700 md:text-base" data-testid="hero-csv-reason">
+          <p
+            className="max-w-[92%] whitespace-pre-line text-sm font-semibold leading-snug text-gray-700 md:text-base"
+            data-testid="hero-csv-reason"
+          >
             {reasonText}
           </p>
         )}

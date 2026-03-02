@@ -342,7 +342,15 @@ async function fetchAiData(stationName: string, aiProfile: { ageGroup: string; c
   console.log('[BFF] Raw AI Data:', JSON.stringify(raw, null, 2));
   const csvReason = typeof raw.csv_reason === 'string'
     ? raw.csv_reason
-    : (typeof raw.reason === 'string' ? raw.reason : undefined);
+    : (typeof raw.csvReason === 'string'
+      ? raw.csvReason
+      : (typeof raw.reason === 'string' ? raw.reason : undefined));
+  const detailAnswer = typeof raw.detail_answer === 'string'
+    ? raw.detail_answer
+    : (typeof raw.detailAnswer === 'string'
+      ? raw.detailAnswer
+      : (typeof raw.reason === 'string' ? raw.reason : undefined));
+  const detailText = detailAnswer || 'AI 설명을 준비 중이에요.';
 
   if (
     raw.decision === 'Error' ||
@@ -360,9 +368,9 @@ async function fetchAiData(stationName: string, aiProfile: { ageGroup: string; c
   return {
     summary: typeof raw.decision === 'string' ? raw.decision : '오늘의 가이드를 준비 중이에요.',
     csvReason,
-    detail: typeof raw.reason === 'string' ? raw.reason : 'AI 설명을 준비 중이에요.',
+    detail: detailText,
     threeReason: Array.isArray(raw.three_reason) ? (raw.three_reason as string[]) : [],
-    detailAnswer: typeof raw.detail_answer === 'string' ? raw.detail_answer : (raw.reason as string | undefined),
+    detailAnswer,
     actionItems: Array.isArray(raw.actionItems) ? (raw.actionItems as string[]) : [],
     activityRecommendation: typeof raw.decision === 'string' ? raw.decision : '확인 필요',
     maskRecommendation: 'KF80 권장',

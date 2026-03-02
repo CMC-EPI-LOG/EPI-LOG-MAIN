@@ -5,7 +5,7 @@ import { useUserStore, type UserProfile } from "@/store/useUserStore";
 import HeroCard from "@/components/HeroCard";
 import InsightDrawer from "@/components/InsightDrawer";
 import DataGrid from "@/components/DataGrid";
-import OnboardingModal from "@/components/OnboardingModal";
+import ProfileSettingsModal from "@/components/ProfileSettingsModal";
 import InstallPrompt from "@/components/InstallPrompt";
 import LocationHeader from "@/components/LocationHeader";
 import ShareButton from "@/components/ShareButton";
@@ -37,6 +37,7 @@ const LEGACY_TEST_LOCATION_EVENT = "epilog:test-location-select";
 
 type LoadErrorKind = "timeout" | "fetch" | null;
 type FetchCause = "initial" | "location" | "profile" | "retry";
+type SettingsModalTab = "age" | "condition";
 
 interface DailyReportData {
   airQuality?: AirQualityView;
@@ -62,14 +63,6 @@ const KNOWN_CONDITION_LABELS: Record<string, string> = {
   asthma: '천식',
   atopy: '아토피',
 };
-
-const HERO_CONDITION_OPTIONS = [
-  { value: 'none', label: '해당 없음', icon: '✨' },
-  { value: 'rhinitis', label: '비염', icon: '🤧' },
-  { value: 'asthma', label: '천식', icon: '😮‍💨' },
-  { value: 'atopy', label: '아토피', icon: '🩹' },
-] as const;
-const HERO_CONDITION_VALUE_SET = new Set(HERO_CONDITION_OPTIONS.map((option) => option.value));
 
 function normalizeKnownConditions(profile: UserProfile | null | undefined): string[] {
   if (!profile) return ['none'];
@@ -102,6 +95,19 @@ function buildConditionContextValue(profile: UserProfile | null | undefined): st
   return merged.length > 0 ? merged.join(',') : 'none';
 }
 
+function buildConditionSummary(profile: UserProfile | null | undefined): string {
+  if (!profile) return '질환: 해당 없음';
+
+  const knownLabels = normalizeKnownConditions(profile)
+    .filter((condition) => condition !== 'none')
+    .map((condition) => KNOWN_CONDITION_LABELS[condition] || condition);
+  const custom = Array.isArray(profile.customConditions) ? profile.customConditions.filter(Boolean) : [];
+  const merged = [...knownLabels, ...custom];
+
+  if (merged.length === 0) return '질환: 해당 없음';
+  return `질환: ${merged.join(', ')}`;
+}
+
 function parseKstDataTimeToEpoch(raw?: string | null): number | null {
   if (!raw) return null;
   const matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
@@ -126,7 +132,8 @@ export default function Home() {
   const [data, setData] = useState<DailyReportData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsModalTab, setSettingsModalTab] = useState<SettingsModalTab>("age");
   const [displayRegion, setDisplayRegion] = useState(location.stationName);
   const [loadErrorKind, setLoadErrorKind] = useState<LoadErrorKind>(null);
   const [isLocationRefreshing, setIsLocationRefreshing] = useState(false);
@@ -438,9 +445,8 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleProfileSubmit = (newProfile: UserProfile) => {
+  const commitProfileChange = useCallback((newProfile: UserProfile) => {
     setProfile(newProfile);
-    setIsModalOpen(false);
     // Avoid storing PII like nickname; keep only coarse settings.
     void logEvent("profile_changed", {
       age_group: newProfile.ageGroup,
@@ -453,63 +459,17 @@ export default function Home() {
       conditions: buildConditionContextValue(newProfile),
     });
     fetchData(location, newProfile, "profile");
+  }, [fetchData, location, logEvent, setProfile]);
+
+  const openSettingsModal = useCallback((tab: SettingsModalTab = "age") => {
+    setSettingsModalTab(tab);
+    setIsSettingsModalOpen(true);
+  }, []);
+
+  const handleSettingsSubmit = (newProfile: UserProfile) => {
+    setIsSettingsModalOpen(false);
+    commitProfileChange(newProfile);
   };
-
-  const handleHeroConditionToggle = useCallback((conditionValue: string) => {
-    if (!HERO_CONDITION_VALUE_SET.has(conditionValue as (typeof HERO_CONDITION_OPTIONS)[number]['value'])) {
-      return;
-    }
-
-    const currentProfile: UserProfile = profile || {
-      nickname: "",
-      ageGroup: "elementary_low",
-      condition: "none",
-      conditions: ["none"],
-      customConditions: [],
-    };
-
-    const currentKnown = normalizeKnownConditions(currentProfile);
-    const hasCustom = Array.isArray(currentProfile.customConditions) && currentProfile.customConditions.length > 0;
-    let nextKnown: string[] = currentKnown;
-    let nextCustom = Array.isArray(currentProfile.customConditions) ? currentProfile.customConditions : [];
-
-    if (conditionValue === "none") {
-      nextKnown = ["none"];
-      nextCustom = [];
-    } else {
-      const withoutNone = currentKnown.filter((value) => value !== "none");
-      if (withoutNone.includes(conditionValue)) {
-        nextKnown = withoutNone.filter((value) => value !== conditionValue);
-      } else {
-        nextKnown = [...withoutNone, conditionValue];
-      }
-
-      if (nextKnown.length === 0 && !hasCustom) {
-        nextKnown = ["none"];
-      }
-    }
-
-    const primaryCondition = nextKnown.find((value) => value !== "none") || "none";
-    const nextProfile: UserProfile = {
-      ...currentProfile,
-      condition: primaryCondition,
-      conditions: nextKnown,
-      customConditions: nextCustom,
-    };
-
-    setProfile(nextProfile);
-    void logEvent("profile_changed", {
-      age_group: nextProfile.ageGroup,
-      condition: nextProfile.condition,
-      conditions: buildConditionContextValue(nextProfile),
-    });
-    trackCoreEvent("profile_changed", {
-      age_group: nextProfile.ageGroup,
-      condition: nextProfile.condition,
-      conditions: buildConditionContextValue(nextProfile),
-    });
-    fetchData(location, nextProfile, "profile");
-  }, [fetchData, location, logEvent, profile, setProfile]);
 
   const handleLocationSelect = useCallback((address: string, stationName: string) => {
     setDisplayRegion(address);
@@ -555,11 +515,11 @@ export default function Home() {
     : '/Character/C2.svg'; // Default
 
   // Profile badge text
-  const profileBadge = profile?.ageGroup === "infant" ? "👶 영아(0~2세)" : 
-    profile?.ageGroup === "toddler" ? "🧒 유아(3~6세)" :
-    profile?.ageGroup === "elementary_low" ? "🎒 초등 저학년" :
-    profile?.ageGroup === "elementary_high" ? "🏫 초등 고학년" : "🧑 청소년/성인";
-  const selectedKnownConditions = normalizeKnownConditions(profile);
+  const ageSummaryText = profile?.ageGroup === "infant" ? "연령: 영아(0~2세)" : 
+    profile?.ageGroup === "toddler" ? "연령: 유아(3~6세)" :
+    profile?.ageGroup === "elementary_low" ? "연령: 초등 저학년" :
+    profile?.ageGroup === "elementary_high" ? "연령: 초등 고학년" : "연령: 청소년/성인";
+  const conditionSummaryText = buildConditionSummary(profile);
 
   const isHeroError = !data && !isLoading && loadErrorKind !== null;
   const heroErrorTitle =
@@ -772,7 +732,7 @@ export default function Home() {
         />
         
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => openSettingsModal("age")}
           className="p-2 rounded-full hover:bg-black/10 transition-all bento-card-sm bg-white"
           aria-label={isOnboarded ? "설정 변경" : "맞춤 설정 시작"}
           data-testid="settings-button"
@@ -801,14 +761,15 @@ export default function Home() {
         <HeroCard
           character={characterPath}
           decisionText={data?.aiGuide?.summary || "지금은 정보를 가져올 수 없어요 😢"}
-          reasonText={data?.aiGuide?.csvReason}
+          reasonText={data?.aiGuide?.csvReason || data?.aiGuide?.detail}
           maskRecommendation={data?.aiGuide?.maskRecommendation}
           grade={data?.airQuality?.grade || "NORMAL"}
-          profileBadge={profileBadge}
-          conditionOptions={[...HERO_CONDITION_OPTIONS]}
-          selectedConditions={selectedKnownConditions}
-          onConditionToggle={handleHeroConditionToggle}
-          isConditionSelectorDisabled={isProfileRefreshing}
+          ageSummary={ageSummaryText}
+          conditionSummary={conditionSummaryText}
+          onOpenAgeModal={() => openSettingsModal("age")}
+          isAgeButtonDisabled={isProfileRefreshing}
+          onOpenConditionModal={() => openSettingsModal("condition")}
+          isConditionButtonDisabled={isProfileRefreshing}
           isLoading={isHeroLoading}
           loadingCaption={heroLoadingCaption}
           isError={isHeroError}
@@ -911,12 +872,13 @@ export default function Home() {
         증상이 있다면 반드시 전문 의료진과 상의하세요.
       </p>
 
-      <OnboardingModal
-        key={`onboarding-${profile?.ageGroup || "default"}-${profile?.condition || "default"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isModalOpen ? "open" : "closed"}`}
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSubmit={handleProfileSubmit}
+      <ProfileSettingsModal
+        key={`settings-${settingsModalTab}-${profile?.ageGroup || "default"}-${profile?.condition || "none"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isSettingsModalOpen ? "open" : "closed"}`}
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        onSubmit={handleSettingsSubmit}
         currentProfile={profile}
+        initialTab={settingsModalTab}
       />
 
       {!isLoading && <InstallPrompt />}
