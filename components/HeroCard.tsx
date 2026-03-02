@@ -9,8 +9,13 @@ interface HeroCardProps {
   character: string;
   decisionText: string;
   reasonText?: string;
+  maskRecommendation?: string;
   grade: string;
   profileBadge: string;
+  conditionOptions?: Array<{ value: string; label: string; icon: string }>;
+  selectedConditions?: string[];
+  onConditionToggle?: (condition: string) => void;
+  isConditionSelectorDisabled?: boolean;
   isLoading?: boolean;
   loadingCaption?: string;
   isError?: boolean;
@@ -48,12 +53,29 @@ function getOutingStatusByGrade(grade: string): { label: string; colorClass: str
   return { label: "외출 비권장", colorClass: "text-red-600" };
 }
 
+function shouldShowMaskRecommendation(grade: string): boolean {
+  const normalized = (grade || "").toUpperCase();
+  return normalized === "BAD" || normalized === "VERY_BAD";
+}
+
+function getMaskRecommendationText(maskRecommendation?: string): string {
+  const normalized = maskRecommendation?.trim();
+  if (!normalized || normalized === "확인 필요") return "KF80 마스크 착용 권장";
+  if (normalized === "KF80 권장") return "KF80 마스크 착용 권장";
+  return normalized;
+}
+
 export default function HeroCard({
   character,
   decisionText,
   reasonText,
+  maskRecommendation,
   grade,
   profileBadge,
+  conditionOptions = [],
+  selectedConditions = [],
+  onConditionToggle,
+  isConditionSelectorDisabled = false,
   isLoading = false,
   loadingCaption,
   isError = false,
@@ -61,7 +83,13 @@ export default function HeroCard({
   errorMessage = "잠시 후 다시 시도해주세요",
   onRetry,
 }: HeroCardProps) {
+  const selectedConditionSet = useMemo(() => new Set(selectedConditions), [selectedConditions]);
   const outingStatus = useMemo(() => getOutingStatusByGrade(grade), [grade]);
+  const showMaskRecommendation = useMemo(() => shouldShowMaskRecommendation(grade), [grade]);
+  const maskRecommendationText = useMemo(
+    () => getMaskRecommendationText(maskRecommendation),
+    [maskRecommendation],
+  );
   const loadingMessages = useMemo(() => {
     if (loadingCaption?.includes("연령/질환")) return PROFILE_LOADING_MESSAGES;
     if (loadingCaption?.includes("기준으로 데이터 업데이트")) return LOCATION_LOADING_MESSAGES;
@@ -155,15 +183,52 @@ export default function HeroCard({
       transition={{ duration: 0.5 }}
       className="col-span-2 h-[42vh] min-h-[344px] bento-card relative flex flex-col items-center justify-between p-5 md:p-6"
     >
-      {/* Profile Badge - Top Left, INSIDE card (diary tab style) */}
-      <motion.div
-        initial={{ x: -50, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="absolute left-5 top-5 z-10 rounded-lg border-2 border-black bg-white px-3 py-1.5 text-xs font-bold shadow-bento-sm md:left-6 md:top-6"
-      >
-        {profileBadge}
-      </motion.div>
+      <div className="absolute left-5 top-5 z-10 md:left-6 md:top-6">
+        {/* Profile Badge - Top Left, INSIDE card (diary tab style) */}
+        <motion.div
+          initial={{ x: -50, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ delay: 0.2 }}
+          className="w-fit rounded-lg border-2 border-black bg-white px-3 py-1.5 text-xs font-bold shadow-bento-sm"
+          data-testid="hero-age-badge"
+        >
+          {profileBadge}
+        </motion.div>
+
+        {conditionOptions.length > 0 && onConditionToggle && (
+          <motion.div
+            initial={{ x: -30, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: 0.25 }}
+            className="mt-2 max-w-[250px] rounded-xl border-2 border-black bg-white/95 p-2 shadow-bento-sm"
+            data-testid="hero-condition-selector"
+          >
+            <p className="text-[11px] font-black text-gray-700">질환 빠른 선택</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {conditionOptions.map((option) => {
+                const isActive = selectedConditionSet.has(option.value);
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => onConditionToggle(option.value)}
+                    disabled={isConditionSelectorDisabled}
+                    className={`inline-flex items-center gap-1 rounded-full border-2 px-2.5 py-1 text-[11px] font-black transition ${
+                      isActive
+                        ? "border-black bg-black text-white"
+                        : "border-gray-300 bg-gray-50 text-gray-700 hover:border-black hover:text-black"
+                    } ${isConditionSelectorDisabled ? "cursor-not-allowed opacity-60" : ""}`}
+                    data-testid={`hero-condition-${option.value}`}
+                  >
+                    <span aria-hidden="true">{option.icon}</span>
+                    <span>{option.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </div>
 
       {/* Grade Badge - Top Right, INSIDE card (stamp/price tag style) */}
       <motion.div
@@ -208,6 +273,15 @@ export default function HeroCard({
         >
           ● {outingStatus.label}
         </h1>
+        {showMaskRecommendation && (
+          <p
+            className="inline-flex items-center gap-1.5 rounded-full border-2 border-black bg-red-50 px-3 py-1 text-sm font-black text-red-700 md:text-base"
+            data-testid="hero-mask-recommendation"
+          >
+            <span aria-hidden="true">😷</span>
+            <span>{maskRecommendationText}</span>
+          </p>
+        )}
         <p className="text-xl font-black leading-tight text-gray-900 md:text-2xl" data-testid="hero-main-text">
           {decisionText}
         </p>
