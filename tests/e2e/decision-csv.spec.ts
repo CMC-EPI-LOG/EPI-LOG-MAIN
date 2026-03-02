@@ -203,30 +203,31 @@ function buildDailyReportPayload(scenario: Scenario) {
 
 async function selectProfile(page: Page, scenario: Scenario) {
   const settingsButton = page.getByTestId('settings-button');
-  const onboardingModal = page.getByTestId('onboarding-modal');
+  const settingsModal = page.getByTestId('settings-modal');
   const conditionTrigger = page.getByTestId('hero-condition-open');
-  const conditionModal = page.getByTestId('condition-modal');
 
   await settingsButton.click();
-  if (!(await onboardingModal.isVisible())) {
+  if (!(await settingsModal.isVisible())) {
     await settingsButton.click();
   }
-  await expect(onboardingModal).toBeVisible();
+  await expect(settingsModal).toBeVisible();
 
-  await onboardingModal.getByRole('button', { name: ageButtonName(scenario.expectedAgeGroup) }).click();
-  await onboardingModal.getByTestId('onboarding-submit').click();
-  await expect(onboardingModal).toBeHidden();
+  await settingsModal.getByTestId('settings-tab-age').click();
+  await settingsModal.getByRole('button', { name: ageButtonName(scenario.expectedAgeGroup) }).click();
+  await settingsModal.getByTestId('settings-submit').click();
+  await expect(settingsModal).toBeHidden();
 
   await expect(conditionTrigger).toBeVisible();
   await conditionTrigger.click();
-  await expect(conditionModal).toBeVisible();
+  await expect(settingsModal).toBeVisible();
 
-  await conditionModal.getByRole('button', { name: /해당 없음/ }).click();
+  await settingsModal.getByTestId('settings-tab-condition').click();
+  await settingsModal.getByRole('button', { name: /해당 없음/ }).click();
   if (scenario.expectedCondition !== 'none') {
-    await conditionModal.getByRole('button', { name: conditionButtonName(scenario.expectedCondition) }).click();
+    await settingsModal.getByRole('button', { name: conditionButtonName(scenario.expectedCondition) }).click();
   }
-  await conditionModal.getByTestId('condition-submit').click();
-  await expect(conditionModal).toBeHidden();
+  await settingsModal.getByTestId('settings-submit').click();
+  await expect(settingsModal).toBeHidden();
 }
 
 test.describe('CSV Decision Matrix E2E', () => {

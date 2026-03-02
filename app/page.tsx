@@ -5,8 +5,7 @@ import { useUserStore, type UserProfile } from "@/store/useUserStore";
 import HeroCard from "@/components/HeroCard";
 import InsightDrawer from "@/components/InsightDrawer";
 import DataGrid from "@/components/DataGrid";
-import OnboardingModal from "@/components/OnboardingModal";
-import ConditionModal from "@/components/ConditionModal";
+import ProfileSettingsModal from "@/components/ProfileSettingsModal";
 import InstallPrompt from "@/components/InstallPrompt";
 import LocationHeader from "@/components/LocationHeader";
 import ShareButton from "@/components/ShareButton";
@@ -38,6 +37,7 @@ const LEGACY_TEST_LOCATION_EVENT = "epilog:test-location-select";
 
 type LoadErrorKind = "timeout" | "fetch" | null;
 type FetchCause = "initial" | "location" | "profile" | "retry";
+type SettingsModalTab = "age" | "condition";
 
 interface DailyReportData {
   airQuality?: AirQualityView;
@@ -132,8 +132,8 @@ export default function Home() {
   const [data, setData] = useState<DailyReportData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isConditionModalOpen, setIsConditionModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsModalTab, setSettingsModalTab] = useState<SettingsModalTab>("age");
   const [displayRegion, setDisplayRegion] = useState(location.stationName);
   const [loadErrorKind, setLoadErrorKind] = useState<LoadErrorKind>(null);
   const [isLocationRefreshing, setIsLocationRefreshing] = useState(false);
@@ -461,13 +461,13 @@ export default function Home() {
     fetchData(location, newProfile, "profile");
   }, [fetchData, location, logEvent, setProfile]);
 
-  const handleProfileSubmit = (newProfile: UserProfile) => {
-    setIsModalOpen(false);
-    commitProfileChange(newProfile);
-  };
+  const openSettingsModal = useCallback((tab: SettingsModalTab = "age") => {
+    setSettingsModalTab(tab);
+    setIsSettingsModalOpen(true);
+  }, []);
 
-  const handleConditionSubmit = (newProfile: UserProfile) => {
-    setIsConditionModalOpen(false);
+  const handleSettingsSubmit = (newProfile: UserProfile) => {
+    setIsSettingsModalOpen(false);
     commitProfileChange(newProfile);
   };
 
@@ -515,10 +515,10 @@ export default function Home() {
     : '/Character/C2.svg'; // Default
 
   // Profile badge text
-  const profileBadge = profile?.ageGroup === "infant" ? "👶 영아(0~2세)" : 
-    profile?.ageGroup === "toddler" ? "🧒 유아(3~6세)" :
-    profile?.ageGroup === "elementary_low" ? "🎒 초등 저학년" :
-    profile?.ageGroup === "elementary_high" ? "🏫 초등 고학년" : "🧑 청소년/성인";
+  const ageSummaryText = profile?.ageGroup === "infant" ? "연령: 영아(0~2세)" : 
+    profile?.ageGroup === "toddler" ? "연령: 유아(3~6세)" :
+    profile?.ageGroup === "elementary_low" ? "연령: 초등 저학년" :
+    profile?.ageGroup === "elementary_high" ? "연령: 초등 고학년" : "연령: 청소년/성인";
   const conditionSummaryText = buildConditionSummary(profile);
 
   const isHeroError = !data && !isLoading && loadErrorKind !== null;
@@ -732,7 +732,7 @@ export default function Home() {
         />
         
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => openSettingsModal("age")}
           className="p-2 rounded-full hover:bg-black/10 transition-all bento-card-sm bg-white"
           aria-label={isOnboarded ? "설정 변경" : "맞춤 설정 시작"}
           data-testid="settings-button"
@@ -764,9 +764,11 @@ export default function Home() {
           reasonText={data?.aiGuide?.csvReason || data?.aiGuide?.detail}
           maskRecommendation={data?.aiGuide?.maskRecommendation}
           grade={data?.airQuality?.grade || "NORMAL"}
-          profileBadge={profileBadge}
+          ageSummary={ageSummaryText}
           conditionSummary={conditionSummaryText}
-          onOpenConditionModal={() => setIsConditionModalOpen(true)}
+          onOpenAgeModal={() => openSettingsModal("age")}
+          isAgeButtonDisabled={isProfileRefreshing}
+          onOpenConditionModal={() => openSettingsModal("condition")}
           isConditionButtonDisabled={isProfileRefreshing}
           isLoading={isHeroLoading}
           loadingCaption={heroLoadingCaption}
@@ -870,20 +872,13 @@ export default function Home() {
         증상이 있다면 반드시 전문 의료진과 상의하세요.
       </p>
 
-      <OnboardingModal
-        key={`onboarding-${profile?.ageGroup || "default"}-${isModalOpen ? "open" : "closed"}`}
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSubmit={handleProfileSubmit}
+      <ProfileSettingsModal
+        key={`settings-${settingsModalTab}-${profile?.ageGroup || "default"}-${profile?.condition || "none"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isSettingsModalOpen ? "open" : "closed"}`}
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        onSubmit={handleSettingsSubmit}
         currentProfile={profile}
-      />
-
-      <ConditionModal
-        key={`condition-${profile?.condition || "none"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isConditionModalOpen ? "open" : "closed"}`}
-        isOpen={isConditionModalOpen}
-        onClose={() => setIsConditionModalOpen(false)}
-        onSubmit={handleConditionSubmit}
-        currentProfile={profile}
+        initialTab={settingsModalTab}
       />
 
       {!isLoading && <InstallPrompt />}

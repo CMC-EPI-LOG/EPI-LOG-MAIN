@@ -11,8 +11,10 @@ interface HeroCardProps {
   reasonText?: string;
   maskRecommendation?: string;
   grade: string;
-  profileBadge: string;
+  ageSummary: string;
   conditionSummary?: string;
+  onOpenAgeModal?: () => void;
+  isAgeButtonDisabled?: boolean;
   onOpenConditionModal?: () => void;
   isConditionButtonDisabled?: boolean;
   isLoading?: boolean;
@@ -70,8 +72,10 @@ export default function HeroCard({
   reasonText,
   maskRecommendation,
   grade,
-  profileBadge,
+  ageSummary,
   conditionSummary,
+  onOpenAgeModal,
+  isAgeButtonDisabled = false,
   onOpenConditionModal,
   isConditionButtonDisabled = false,
   isLoading = false,
@@ -181,43 +185,43 @@ export default function HeroCard({
       className="col-span-2 min-h-[460px] bento-card relative flex flex-col items-center p-5 md:min-h-[540px] md:p-6"
     >
       <div className="absolute left-5 top-5 z-10 md:left-6 md:top-6">
-        {/* Profile Badge - Top Left, INSIDE card (diary tab style) */}
-        <motion.div
-          initial={{ x: -50, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="w-fit rounded-lg border-2 border-black bg-white px-3 py-1.5 text-xs font-bold shadow-bento-sm"
-          data-testid="hero-age-badge"
-        >
-          {profileBadge}
-        </motion.div>
+        <div className="flex w-[min(270px,calc(100vw-88px))] flex-col gap-2">
+          {onOpenAgeModal && (
+            <motion.button
+              type="button"
+              initial={{ x: -50, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              onClick={onOpenAgeModal}
+              disabled={isAgeButtonDisabled}
+              className={`inline-flex w-full items-center justify-start gap-1.5 rounded-xl border-2 border-black bg-white/95 px-3 py-1.5 text-xs font-black shadow-bento-sm transition hover:bg-black hover:text-white ${
+                isAgeButtonDisabled ? "cursor-not-allowed opacity-60" : ""
+              }`}
+              data-testid="hero-age-open"
+            >
+              <span aria-hidden="true">👶</span>
+              <span className="min-w-0 truncate text-left">{ageSummary}</span>
+            </motion.button>
+          )}
 
-        {onOpenConditionModal && (
-          <motion.button
-            type="button"
-            initial={{ x: -30, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ delay: 0.25 }}
-            onClick={onOpenConditionModal}
-            disabled={isConditionButtonDisabled}
-            className={`mt-2 inline-flex items-center gap-1.5 rounded-xl border-2 border-black bg-white/95 px-3 py-1.5 text-xs font-black shadow-bento-sm transition hover:bg-black hover:text-white ${
-              isConditionButtonDisabled ? "cursor-not-allowed opacity-60" : ""
-            }`}
-            data-testid="hero-condition-open"
-          >
-            <span aria-hidden="true">🩺</span>
-            <span>질환 선택</span>
-          </motion.button>
-        )}
-
-        {conditionSummary && (
-          <p
-            className="mt-1 max-w-[260px] rounded-lg border border-black/20 bg-white/80 px-2.5 py-1 text-[11px] font-semibold text-gray-700"
-            data-testid="hero-condition-summary"
-          >
-            {conditionSummary}
-          </p>
-        )}
+          {onOpenConditionModal && (
+            <motion.button
+              type="button"
+              initial={{ x: -30, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.25 }}
+              onClick={onOpenConditionModal}
+              disabled={isConditionButtonDisabled}
+              className={`inline-flex w-full items-center justify-start gap-1.5 rounded-xl border-2 border-black bg-white/95 px-3 py-1.5 text-xs font-black shadow-bento-sm transition hover:bg-black hover:text-white ${
+                isConditionButtonDisabled ? "cursor-not-allowed opacity-60" : ""
+              }`}
+              data-testid="hero-condition-open"
+            >
+              <span aria-hidden="true">🩺</span>
+              <span className="min-w-0 truncate text-left">{conditionSummary || "질환: 해당 없음"}</span>
+            </motion.button>
+          )}
+        </div>
       </div>
 
       {/* Grade Badge - Top Right, INSIDE card (stamp/price tag style) */}
@@ -237,9 +241,9 @@ export default function HeroCard({
         transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
         className="mt-12 flex flex-1 items-center justify-center md:mt-8"
       >
-        <div className="relative h-48 w-48 md:h-56 md:w-56">
+        <div className="relative h-44 w-44 md:h-52 md:w-52">
           {/* Character with Glow */}
-          <div className="relative h-48 w-48 character-glow md:h-56 md:w-56">
+          <div className="relative h-44 w-44 character-glow md:h-52 md:w-52">
             <Image
               src={character}
               alt="Air quality character"
