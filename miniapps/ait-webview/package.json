@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "granite dev",
     "build": "granite build",
+    "build:web": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy": "ait deploy"
+    "deploy": "ait deploy",
+    "sentry:sourcemaps:upload": "node ./scripts/upload-sourcemaps.mjs",
+    "release:build": "npm run build && npm run sentry:sourcemaps:upload"
   },
   "dependencies": {
     "@apps-in-toss/web-framework": "^1.9.4",
+    "@sentry/browser": "^10.41.0",
     "@toss/tds-mobile": "^2.2.1",
     "framer-motion": "^12.34.0",
     "lucide-react": "^0.563.0",

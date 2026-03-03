@@ -17,6 +17,7 @@ import toast from "react-hot-toast";
 import { getCharacterPath } from "@/lib/characterUtils";
 import { getBackgroundColor } from "@/lib/colorUtils";
 import { setCoreEventContext, trackCoreEvent } from "@/lib/analytics/ga";
+import { setSentryRuntimeContext } from "@/lib/monitoring/sentry";
 import { useLogger } from "@/hooks/useLogger";
 import { apiUrl } from "@/lib/apiBase";
 import {
@@ -609,14 +610,23 @@ export default function Home() {
 
   useEffect(() => {
     const conditionContext = buildConditionContextValue(profile);
+    const knownConditions = normalizeKnownConditions(profile);
+    const customConditions = profile?.customConditions || [];
+
     setCoreEventContext({
       station_name: data?.airQuality?.stationName || location.stationName,
       reliability_status: data?.reliability?.status || "unknown",
       age_group: profile?.ageGroup,
       condition: conditionContext,
     });
-
-    // Sentry is wired in the Next.js app; in the miniapp we keep this as a no-op.
+    setSentryRuntimeContext({
+      stationName: data?.airQuality?.stationName || location.stationName,
+      reliabilityStatus: data?.reliability?.status || "unknown",
+      ageGroup: profile?.ageGroup,
+      condition: conditionContext,
+      knownConditions,
+      customConditions,
+    });
   }, [
     data?.airQuality?.stationName,
     data?.reliability?.status,

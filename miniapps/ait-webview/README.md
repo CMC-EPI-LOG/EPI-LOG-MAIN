@@ -44,6 +44,46 @@ npm run build
 
 빌드 산출물은 `dist/`에 생성되고, `.ait` 파일도 함께 생성됩니다(`*.ait`는 gitignore 처리됨).
 
+## Sentry 운영
+
+미니앱은 `@sentry/browser`로 JS 런타임 오류를 수집합니다. (네이티브 크래시 수집은 사용하지 않음)
+
+### 런타임 환경변수
+
+- `VITE_SENTRY_DSN`: 미니앱 DSN
+- `VITE_SENTRY_ENVIRONMENT`: 환경 이름(예: `production`, `staging`)
+- `VITE_SENTRY_RELEASE`: 릴리즈 식별자(예: git sha)
+- `VITE_SENTRY_TRACES_SAMPLE_RATE`: 트레이스 샘플링 비율(기본 `0`)
+
+### sourcemap 업로드
+
+배포 산출물 생성 후 다음 스크립트로 sourcemap을 업로드합니다.
+
+```bash
+cd /Users/lux/Documents/EPI-LOG-MAIN/miniapps/ait-webview
+npm run build
+SENTRY_AUTH_TOKEN=... \
+SENTRY_ORG=... \
+SENTRY_PROJECT=... \
+SENTRY_RELEASE=<release-id> \
+npm run sentry:sourcemaps:upload
+```
+
+또는 원샷 실행:
+
+```bash
+SENTRY_AUTH_TOKEN=... \
+SENTRY_ORG=... \
+SENTRY_PROJECT=... \
+SENTRY_RELEASE=<release-id> \
+npm run release:build
+```
+
+### granite.config.ts 플러그인 검토 결과
+
+현재 `@apps-in-toss/web-framework@1.9.4` 빌드 경로는 사용자 정의 Granite 플러그인 체인을 외부 config에서 직접 주입하지 않습니다.  
+그래서 sourcemap 운영은 `sentry-cli` 스크립트 기반으로 처리합니다.
+
 ## 디자인 시스템(TDS)
 
 `@toss/tds-mobile`이 설치되어 있습니다. TDS는 로컬 브라우저에서는 동작하지 않을 수 있으니, UI 확인은 샌드박스앱 기준으로 진행하세요.

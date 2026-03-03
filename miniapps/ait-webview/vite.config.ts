@@ -7,9 +7,13 @@ import path from 'node:path'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const platform = env.VITE_PLATFORM || env.NEXT_PUBLIC_PLATFORM || 'TOSS'
+  const sourceMapEnabled = (env.VITE_SOURCEMAP || 'true').toLowerCase() !== 'false'
 
   return {
     plugins: [tailwindcss(), react()],
+    build: {
+      sourcemap: mode === 'production' ? sourceMapEnabled : false,
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
