@@ -19,6 +19,7 @@ interface HeroCardProps {
   isConditionButtonDisabled?: boolean;
   onOpenClothingModal?: () => void;
   isClothingButtonDisabled?: boolean;
+  clothingButtonLabel?: string;
   isLoading?: boolean;
   loadingCaption?: string;
   isError?: boolean;
@@ -82,6 +83,7 @@ export default function HeroCard({
   isConditionButtonDisabled = false,
   onOpenClothingModal,
   isClothingButtonDisabled = false,
+  clothingButtonLabel,
   isLoading = false,
   loadingCaption,
   isError = false,
@@ -122,7 +124,7 @@ export default function HeroCard({
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="col-span-2 min-h-[380px] bento-card flex flex-col items-center justify-center p-7 text-center md:min-h-[440px]"
+        className="col-span-2 bento-card flex flex-col items-center justify-center px-7 py-10 text-center"
         data-testid="hero-error"
       >
         <div className="text-8xl mb-4">😎</div>
@@ -145,17 +147,17 @@ export default function HeroCard({
   if (isLoading) {
     return (
       <div
-        className="col-span-2 min-h-[380px] bento-card relative overflow-hidden p-5 md:min-h-[440px] md:p-6"
+        className="col-span-2 bento-card relative overflow-hidden p-5 md:p-6"
         data-testid="hero-loading"
       >
         <div className="absolute inset-0 skeleton-block opacity-45" />
-        <div className="relative flex h-full flex-col justify-between">
+        <div className="relative flex flex-col gap-4">
           <div className="flex items-start justify-between">
             <div className="h-8 w-28 rounded-lg border-2 border-black skeleton-block" />
             <div className="h-10 w-16 rounded-xl border-2 border-black skeleton-block" />
           </div>
 
-          <div className="flex flex-1 items-center justify-center">
+          <div className="flex items-center justify-center py-1">
             <div className="relative h-52 w-52 md:h-56 md:w-56">
               <div className="absolute inset-0 rounded-full border border-gray-300 skeleton-block" />
               <div className="absolute inset-6 rounded-full border border-gray-200 bg-gray-100/70" />
@@ -187,7 +189,7 @@ export default function HeroCard({
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.5 }}
-      className="col-span-2 min-h-[460px] bento-card relative flex flex-col items-center p-5 md:min-h-[540px] md:p-6"
+      className="col-span-2 bento-card relative flex h-fit flex-col items-center px-5 pb-5 pt-20 md:px-6 md:pb-6 md:pt-24"
     >
       <div className="absolute left-5 top-5 z-10 md:left-6 md:top-6">
         <div className="inline-grid max-w-[min(290px,calc(100vw-88px))] grid-cols-1 gap-2">
@@ -241,7 +243,7 @@ export default function HeroCard({
               data-testid="hero-clothing-open"
             >
               <span aria-hidden="true">👕</span>
-              <span className="min-w-0 text-left">옷차림 보기</span>
+              <span className="min-w-0 text-left">{clothingButtonLabel || "옷차림 보기"}</span>
             </motion.button>
           )}
         </div>
@@ -266,7 +268,7 @@ export default function HeroCard({
             ? { duration: 0.3, delay: 0.2 }
             : { delay: 0.35, type: "spring", stiffness: 180, damping: 14 }
         }
-        className="mt-12 flex flex-1 items-center justify-center md:mt-8"
+        className="flex items-center justify-center"
       >
         <motion.div
           animate={
@@ -299,7 +301,7 @@ export default function HeroCard({
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.6 }}
-        className="mt-2 flex w-full flex-col items-center gap-2 text-center"
+        className="mt-0.5 flex w-full flex-col items-center gap-2 text-center"
       >
         <h1
           className={`text-3xl font-black leading-tight md:text-4xl ${outingStatus.colorClass}`}
