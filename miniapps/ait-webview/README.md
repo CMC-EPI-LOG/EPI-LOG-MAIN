@@ -44,6 +44,12 @@ npm run build
 
 빌드 산출물은 `dist/`에 생성되고, `.ait` 파일도 함께 생성됩니다(`*.ait`는 gitignore 처리됨).
 
+## 분석(Analytics)
+
+- GA4 ID는 `VITE_GA_ID`로 주입합니다.
+- 앱 진입 시점의 UTM 저장/페이지뷰 계측은 `src/components/AnalyticsBootstrap.tsx`에서 수행합니다.
+- 이벤트 네이밍/필수 컨텍스트 표준 초안은 `ANALYTICS_EVENT_NAMING.md`를 참고하세요.
+
 ## 디자인 시스템(TDS)
 
 `@toss/tds-mobile`이 설치되어 있습니다. TDS는 로컬 브라우저에서는 동작하지 않을 수 있으니, UI 확인은 샌드박스앱 기준으로 진행하세요.

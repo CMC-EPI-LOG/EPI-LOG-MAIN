@@ -1,9 +1,15 @@
 'use client';
 
+import { getTossShareLink, share as tossShare } from '@apps-in-toss/web-framework';
 import { Share2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { trackCoreEvent } from '@/lib/analytics/ga';
 import { useLogger } from '@/hooks/useLogger';
+import {
+  buildMiniappDeepLink,
+  buildTossShareMessage,
+  resolveMiniappNameFromHostname,
+} from '@/lib/shareLink';
 
 interface ShareButtonProps {
   nickname?: string;
@@ -35,22 +41,75 @@ function createShareId() {
 
 export default function ShareButton({ nickname, region, action, summary, reason }: ShareButtonProps) {
   const { logEvent } = useLogger();
-
-  // Apps in Toss policy: don't send users outside of the miniapp environment.
-  if (process.env.NEXT_PUBLIC_PLATFORM === 'TOSS') return null;
+  const isTossPlatform = process.env.NEXT_PUBLIC_PLATFORM === 'TOSS';
 
   const handleShare = async () => {
+    const share_id = createShareId();
+    const decisionLine = toSingleLine(action || summary || '오늘 활동 가이드를 확인해보세요');
+    const reasonLine = toSingleLine(reason || '');
+
+    if (isTossPlatform) {
+      void logEvent('share_click', { method: 'toss_share', share_id });
+      try {
+        const appName = resolveMiniappNameFromHostname(window.location.hostname);
+        const deepLink = buildMiniappDeepLink(appName, share_id);
+        void logEvent('share_link_created', {
+          share_id,
+          share_type: 'toss_deeplink',
+          deep_link: deepLink,
+        });
+
+        const tossLink = await getTossShareLink(deepLink);
+        const message = buildTossShareMessage({
+          nickname,
+          region,
+          summaryLine: decisionLine,
+          reasonLine,
+          tossLink,
+        });
+        await tossShare({ message });
+
+        void logEvent('share_result', {
+          method: 'toss_share',
+          result: 'success',
+          share_id,
+          deep_link: deepLink,
+        });
+        trackCoreEvent('share_clicked', {
+          station_name: region || 'unknown',
+          recommended_action: action || summary || 'unknown',
+          share_channel: 'toss_share',
+          share_result: 'success',
+        });
+        return;
+      } catch (err) {
+        const isCanceled = err instanceof DOMException && err.name === 'AbortError';
+        void logEvent('share_result', {
+          method: 'toss_share',
+          result: isCanceled ? 'cancel' : 'error',
+          share_id,
+        });
+        trackCoreEvent('share_clicked', {
+          station_name: region || 'unknown',
+          recommended_action: action || summary || 'unknown',
+          share_channel: 'toss_share',
+          share_result: isCanceled ? 'cancel' : 'error',
+        });
+        if (!isCanceled) {
+          console.error('Toss share failed:', err);
+          toast.error('공유를 완료하지 못했어요.');
+        }
+        return;
+      }
+    }
+
     const navigatorWithShare = navigator as Navigator & {
       share?: (data?: ShareData) => Promise<void>;
     };
     const canNativeShare = typeof navigatorWithShare.share === 'function';
     const shareMethod = canNativeShare ? 'native' : 'clipboard';
-    const share_id = createShareId();
     void logEvent('share_link_created', { share_id });
     void logEvent('share_click', { method: shareMethod, share_id });
-
-    const decisionLine = toSingleLine(action || summary || '오늘 활동 가이드를 확인해보세요');
-    const reasonLine = toSingleLine(reason || '');
 
     const shareUrl = new URL(window.location.href);
     shareUrl.searchParams.set('shared_by', share_id);
