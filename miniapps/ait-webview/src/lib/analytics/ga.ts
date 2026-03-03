@@ -1,4 +1,8 @@
-export const GA_ID = (import.meta.env.VITE_GA_ID as string | undefined) || "";
+const env = (import.meta as ImportMeta & {
+  env?: Record<string, string | undefined>;
+}).env;
+
+export const GA_ID = env?.VITE_GA_ID || "";
 
 declare global {
   interface Window {
