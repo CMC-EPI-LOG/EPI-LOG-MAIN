@@ -17,6 +17,8 @@ interface HeroCardProps {
   isAgeButtonDisabled?: boolean;
   onOpenConditionModal?: () => void;
   isConditionButtonDisabled?: boolean;
+  onOpenClothingModal?: () => void;
+  isClothingButtonDisabled?: boolean;
   isLoading?: boolean;
   loadingCaption?: string;
   isError?: boolean;
@@ -78,6 +80,8 @@ export default function HeroCard({
   isAgeButtonDisabled = false,
   onOpenConditionModal,
   isConditionButtonDisabled = false,
+  onOpenClothingModal,
+  isClothingButtonDisabled = false,
   isLoading = false,
   loadingCaption,
   isError = false,
@@ -220,6 +224,24 @@ export default function HeroCard({
             >
               <span aria-hidden="true">🩺</span>
               <span className="min-w-0 text-left">{conditionSummary || "질환: 해당 없음"}</span>
+            </motion.button>
+          )}
+
+          {onOpenClothingModal && (
+            <motion.button
+              type="button"
+              initial={{ x: -20, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              onClick={onOpenClothingModal}
+              disabled={isClothingButtonDisabled}
+              className={`inline-flex w-full items-center justify-start gap-1.5 rounded-xl border-2 border-black bg-white/95 px-3 py-1.5 text-xs font-black shadow-bento-sm transition hover:bg-black hover:text-white ${
+                isClothingButtonDisabled ? "cursor-not-allowed opacity-70" : ""
+              }`}
+              data-testid="hero-clothing-open"
+            >
+              <span aria-hidden="true">👕</span>
+              <span className="min-w-0 text-left">옷차림 보기</span>
             </motion.button>
           )}
         </div>

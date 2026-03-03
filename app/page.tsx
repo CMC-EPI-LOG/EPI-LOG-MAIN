@@ -11,6 +11,7 @@ import LocationHeader from "@/components/LocationHeader";
 import ShareButton from "@/components/ShareButton";
 import ActionChecklistCard from "@/components/ActionChecklistCard";
 import ClothingCard from "@/components/ClothingCard";
+import ClothingDetailModal from "@/components/ClothingDetailModal";
 import AiNotice from "@/components/AiNotice";
 import { Loader2, Settings } from "lucide-react";
 import * as Sentry from "@sentry/nextjs";
@@ -55,6 +56,10 @@ interface ClothingRecommendationData {
   temperature: number;
   humidity: number;
   source?: string;
+}
+
+interface HomeProps {
+  enableClothingModalPreview?: boolean;
 }
 
 const KNOWN_CONDITION_LABELS: Record<string, string> = {
@@ -125,7 +130,7 @@ function parseKstDataTimeToEpoch(raw?: string | null): number | null {
   return Number.isNaN(utcMillis) ? null : utcMillis;
 }
 
-export default function Home() {
+export default function Home({ enableClothingModalPreview = false }: HomeProps = {}) {
   const { location, profile, isOnboarded, setLocation, setProfile } =
     useUserStore();
   const { logEvent, logAddressConsent } = useLogger();
@@ -140,6 +145,7 @@ export default function Home() {
   const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
   const [clothingData, setClothingData] = useState<ClothingRecommendationData | null>(null);
   const [isClothingLoading, setIsClothingLoading] = useState(false);
+  const [isClothingModalOpen, setIsClothingModalOpen] = useState(false);
   const activeControllerRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
   const clothingRequestSeqRef = useRef(0);
@@ -629,6 +635,33 @@ export default function Home() {
     fetchData(location, profile, "retry");
   }, [fetchData, location, profile]);
 
+  const handleOpenClothingModal = useCallback(() => {
+    setIsClothingModalOpen(true);
+    void fetchClothingRecommendation(
+      clothingData?.temperature ?? data?.airQuality?.temp,
+      clothingData?.humidity ?? data?.airQuality?.humidity,
+    );
+  }, [
+    clothingData?.humidity,
+    clothingData?.temperature,
+    data?.airQuality?.humidity,
+    data?.airQuality?.temp,
+    fetchClothingRecommendation,
+  ]);
+
+  const handleRefreshClothingModal = useCallback(() => {
+    void fetchClothingRecommendation(
+      clothingData?.temperature ?? data?.airQuality?.temp,
+      clothingData?.humidity ?? data?.airQuality?.humidity,
+    );
+  }, [
+    clothingData?.humidity,
+    clothingData?.temperature,
+    data?.airQuality?.humidity,
+    data?.airQuality?.temp,
+    fetchClothingRecommendation,
+  ]);
+
   useEffect(() => {
     if (isHeroLoading) {
       if (loadingStartedAtRef.current === null) {
@@ -772,6 +805,8 @@ export default function Home() {
           isAgeButtonDisabled={isProfileRefreshing}
           onOpenConditionModal={() => openSettingsModal("condition")}
           isConditionButtonDisabled={isProfileRefreshing}
+          onOpenClothingModal={enableClothingModalPreview ? handleOpenClothingModal : undefined}
+          isClothingButtonDisabled={isClothingCardLoading}
           isLoading={isHeroLoading}
           loadingCaption={heroLoadingCaption}
           isError={isHeroError}
@@ -791,7 +826,7 @@ export default function Home() {
           isLoading={isProfileDataLoading}
         />
 
-        {(data?.airQuality || isClothingCardLoading) && (
+        {!enableClothingModalPreview && (data?.airQuality || isClothingCardLoading) && (
           <ClothingCard
             summary={clothingData?.summary}
             recommendation={clothingData?.recommendation}
@@ -882,6 +917,20 @@ export default function Home() {
         currentProfile={profile}
         initialTab={settingsModalTab}
       />
+
+      {enableClothingModalPreview && (
+        <ClothingDetailModal
+          isOpen={isClothingModalOpen}
+          onClose={() => setIsClothingModalOpen(false)}
+          isLoading={isClothingLoading}
+          summary={clothingData?.summary}
+          recommendation={clothingData?.recommendation}
+          tips={clothingData?.tips}
+          temperature={clothingData?.temperature ?? data?.airQuality?.temp}
+          humidity={clothingData?.humidity ?? data?.airQuality?.humidity}
+          onRefresh={handleRefreshClothingModal}
+        />
+      )}
 
       {!isLoading && <InstallPrompt />}
     </main>
