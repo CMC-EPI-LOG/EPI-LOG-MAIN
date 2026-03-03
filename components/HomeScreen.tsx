@@ -58,6 +58,26 @@ interface ClothingRecommendationData {
   source?: string;
 }
 
+interface WeatherForecastItem {
+  forecastAt: string;
+  dateKst: string;
+  hourKst: number;
+  timeLabel: string;
+  temperature: number | null;
+  humidity: number | null;
+  precipitation: number | string | null;
+  precipitationProbability: number | null;
+  precipitationType: number | null;
+  sky: number | null;
+}
+
+interface WeatherForecastData {
+  requestedStation: string;
+  resolvedStation: string | null;
+  items: WeatherForecastItem[];
+  timestamp?: string;
+}
+
 interface HomeProps {
   enableClothingModalPreview?: boolean;
 }
@@ -146,9 +166,12 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
   const [clothingData, setClothingData] = useState<ClothingRecommendationData | null>(null);
   const [isClothingLoading, setIsClothingLoading] = useState(false);
   const [isClothingModalOpen, setIsClothingModalOpen] = useState(false);
+  const [forecastData, setForecastData] = useState<WeatherForecastData | null>(null);
+  const [isForecastLoading, setIsForecastLoading] = useState(false);
   const activeControllerRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
   const clothingRequestSeqRef = useRef(0);
+  const forecastRequestSeqRef = useRef(0);
   const activeFetchCauseRef = useRef<FetchCause>("initial");
   const loadingStartedAtRef = useRef<number | null>(null);
   const lastFallbackExposeKeyRef = useRef<string | null>(null);
@@ -194,6 +217,41 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       setIsClothingLoading(false);
     }
   }, []);
+
+  const fetchWeatherForecast = useCallback(async (stationName?: string) => {
+    const requestSeq = ++forecastRequestSeqRef.current;
+    const targetStation =
+      typeof stationName === "string" && stationName.trim()
+        ? stationName.trim()
+        : location.stationName.trim();
+
+    if (!targetStation) {
+      if (requestSeq === forecastRequestSeqRef.current) {
+        setForecastData(null);
+        setIsForecastLoading(false);
+      }
+      return;
+    }
+
+    setIsForecastLoading(true);
+    try {
+      const res = await fetch(
+        `/api/weather-forecast?stationName=${encodeURIComponent(targetStation)}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) throw new Error("Failed to fetch weather forecast");
+
+      const result = (await res.json()) as WeatherForecastData;
+      if (requestSeq !== forecastRequestSeqRef.current) return;
+      setForecastData(result);
+    } catch (error) {
+      if (requestSeq !== forecastRequestSeqRef.current) return;
+      console.error("[UI] Weather forecast fetch failed:", error);
+    } finally {
+      if (requestSeq !== forecastRequestSeqRef.current) return;
+      setIsForecastLoading(false);
+    }
+  }, [location.stationName]);
 
   const fetchData = useCallback(async (
     currentLocation: typeof location,
@@ -641,12 +699,16 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       clothingData?.temperature ?? data?.airQuality?.temp,
       clothingData?.humidity ?? data?.airQuality?.humidity,
     );
+    void fetchWeatherForecast(data?.airQuality?.stationName ?? location.stationName);
   }, [
     clothingData?.humidity,
     clothingData?.temperature,
     data?.airQuality?.humidity,
+    data?.airQuality?.stationName,
     data?.airQuality?.temp,
     fetchClothingRecommendation,
+    fetchWeatherForecast,
+    location.stationName,
   ]);
 
   const handleRefreshClothingModal = useCallback(() => {
@@ -654,12 +716,16 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       clothingData?.temperature ?? data?.airQuality?.temp,
       clothingData?.humidity ?? data?.airQuality?.humidity,
     );
+    void fetchWeatherForecast(data?.airQuality?.stationName ?? location.stationName);
   }, [
     clothingData?.humidity,
     clothingData?.temperature,
     data?.airQuality?.humidity,
+    data?.airQuality?.stationName,
     data?.airQuality?.temp,
     fetchClothingRecommendation,
+    fetchWeatherForecast,
+    location.stationName,
   ]);
 
   const previewClothingButtonLabel = useMemo(() => {
@@ -944,6 +1010,11 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
           tips={clothingData?.tips}
           temperature={clothingData?.temperature ?? data?.airQuality?.temp}
           humidity={clothingData?.humidity ?? data?.airQuality?.humidity}
+          isForecastLoading={isForecastLoading}
+          forecastItems={forecastData?.items}
+          forecastStationName={
+            forecastData?.resolvedStation || data?.airQuality?.stationName || location.stationName
+          }
           onRefresh={handleRefreshClothingModal}
         />
       )}
