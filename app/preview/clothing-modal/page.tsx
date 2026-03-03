@@ -1,7 +1,7 @@
 "use client";
 
-import Home from "@/app/page";
+import HomeScreen from "@/components/HomeScreen";
 
 export default function ClothingModalPreviewPage() {
-  return <Home enableClothingModalPreview />;
+  return <HomeScreen enableClothingModalPreview />;
 }
