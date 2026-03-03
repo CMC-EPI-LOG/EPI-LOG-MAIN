@@ -44,6 +44,12 @@ npm run build
 
 빌드 산출물은 `dist/`에 생성되고, `.ait` 파일도 함께 생성됩니다(`*.ait`는 gitignore 처리됨).
 
+## 분석(Analytics)
+
+- GA4 ID는 `VITE_GA_ID`로 주입합니다.
+- 앱 진입 시점의 UTM 저장/페이지뷰 계측은 `src/components/AnalyticsBootstrap.tsx`에서 수행합니다.
+- 이벤트 네이밍/필수 컨텍스트 표준 초안은 `ANALYTICS_EVENT_NAMING.md`를 참고하세요.
+
 ## Sentry 운영
 
 미니앱은 `@sentry/browser`로 JS 런타임 오류를 수집합니다. (네이티브 크래시 수집은 사용하지 않음)
@@ -81,7 +87,7 @@ npm run release:build
 
 ### granite.config.ts 플러그인 검토 결과
 
-현재 `@apps-in-toss/web-framework@1.9.4` 빌드 경로는 사용자 정의 Granite 플러그인 체인을 외부 config에서 직접 주입하지 않습니다.  
+현재 `@apps-in-toss/web-framework@1.9.4` 빌드 경로는 사용자 정의 Granite 플러그인 체인을 외부 config에서 직접 주입하지 않습니다.
 그래서 sourcemap 운영은 `sentry-cli` 스크립트 기반으로 처리합니다.
 
 ## 디자인 시스템(TDS)

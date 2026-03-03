@@ -4,59 +4,21 @@ import { useMemo, useState } from 'react';
 import type { UserProfile } from '@/store/useUserStore';
 import { X } from 'lucide-react';
 import { Modal } from '@toss/tds-mobile';
+import {
+  CONDITION_OPTIONS,
+  addCustomCondition,
+  buildSubmittedProfile,
+  getInitialConditions,
+  getInitialCustomConditions,
+  removeCustomCondition,
+  toggleKnownCondition,
+} from '@/lib/onboardingProfile';
 
 interface OnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (profile: UserProfile) => void;
   currentProfile: UserProfile | null;
-}
-
-const CONDITION_OPTIONS = [
-  { value: 'none', label: '해당 없음', icon: '✨' },
-  { value: 'rhinitis', label: '알레르기 비염', icon: '🤧' },
-  { value: 'asthma', label: '천식', icon: '😮‍💨' },
-  { value: 'atopy', label: '아토피', icon: '🩹' },
-] as const;
-
-function dedupeValues(values: string[]): string[] {
-  const seen = new Set<string>();
-  const next: string[] = [];
-
-  for (const value of values) {
-    const normalized = value.trim();
-    if (!normalized) continue;
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    next.push(normalized);
-  }
-
-  return next;
-}
-
-function getInitialConditions(profile: UserProfile | null): string[] {
-  if (!profile) return ['none'];
-
-  const fromProfile = [
-    ...(Array.isArray(profile.conditions) ? profile.conditions : []),
-    ...(typeof profile.condition === 'string' ? [profile.condition] : []),
-  ];
-
-  const knownValues = new Set(CONDITION_OPTIONS.map((option) => option.value));
-  const normalized = dedupeValues(fromProfile.map((value) => value.toLowerCase())).filter((value) =>
-    knownValues.has(value as (typeof CONDITION_OPTIONS)[number]['value']),
-  );
-  const withoutNone = normalized.filter((value) => value !== 'none');
-
-  if (withoutNone.length > 0) return withoutNone;
-  if (normalized.includes('none')) return ['none'];
-  if (Array.isArray(profile.customConditions) && profile.customConditions.length > 0) return [];
-  return ['none'];
-}
-
-function getInitialCustomConditions(profile: UserProfile | null): string[] {
-  if (!profile || !Array.isArray(profile.customConditions)) return [];
-  return dedupeValues(profile.customConditions).slice(0, 5);
 }
 
 export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProfile }: OnboardingModalProps) {
@@ -70,72 +32,33 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
   );
 
   const toggleCondition = (value: string) => {
-    if (value === 'none') {
-      setConditions(['none']);
+    const nextState = toggleKnownCondition(conditions, value, customConditions.length);
+    setConditions(nextState.conditions);
+    if (nextState.clearCustomConditions) {
       setCustomConditions([]);
-      return;
     }
-
-    setConditions((prev) => {
-      const withoutNone = prev.filter((condition) => condition !== 'none');
-      if (withoutNone.includes(value)) {
-        const next = withoutNone.filter((condition) => condition !== value);
-        if (next.length === 0 && customConditions.length === 0) return ['none'];
-        return next;
-      }
-
-      return [...withoutNone, value];
-    });
   };
 
-  const addCustomCondition = () => {
-    const next = customConditionInput.trim();
-    if (!next) return;
-
-    const isDuplicate = customConditions.some(
-      (condition) => condition.toLowerCase() === next.toLowerCase(),
-    );
-    if (isDuplicate) {
+  const handleAddCustomCondition = () => {
+    const nextState = addCustomCondition(customConditions, customConditionInput);
+    if (nextState.clearInput) {
       setCustomConditionInput('');
-      return;
     }
-
-    setCustomConditions((prev) => [...prev, next].slice(0, 5));
+    if (!nextState.didAdd) return;
+    setCustomConditions(nextState.customConditions);
     setConditions((prev) => prev.filter((condition) => condition !== 'none'));
-    setCustomConditionInput('');
   };
 
   const toggleCustomCondition = (value: string) => {
-    const nextCustomConditions = customConditions.filter((condition) => condition !== value);
-    setCustomConditions(nextCustomConditions);
-
-    if (nextCustomConditions.length === 0) {
-      setConditions((prev) => {
-        const hasKnownCondition = prev.some((condition) => condition !== 'none');
-        return hasKnownCondition ? prev : ['none'];
-      });
-    }
+    const nextState = removeCustomCondition(customConditions, value, conditions);
+    setCustomConditions(nextState.customConditions);
+    setConditions(nextState.conditions);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const knownConditions = conditions.filter((condition) => condition !== 'none');
-    const normalizedConditions =
-      knownConditions.length > 0
-        ? knownConditions
-        : customConditions.length > 0
-          ? []
-          : ['none'];
-    const primaryCondition = normalizedConditions.find((condition) => condition !== 'none') || 'none';
-
-    onSubmit({
-      nickname: '',
-      ageGroup,
-      condition: primaryCondition,
-      conditions: normalizedConditions,
-      customConditions,
-    });
+    onSubmit(buildSubmittedProfile(ageGroup, conditions, customConditions));
     onClose();
   };
 
@@ -249,7 +172,7 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
                     onKeyDown={(event) => {
                       if (event.key !== 'Enter') return;
                       event.preventDefault();
-                      addCustomCondition();
+                      handleAddCustomCondition();
                     }}
                     placeholder="예: 기관지 과민증"
                     maxLength={20}
@@ -257,7 +180,7 @@ export default function OnboardingModal({ isOpen, onClose, onSubmit, currentProf
                   />
                   <button
                     type="button"
-                    onClick={addCustomCondition}
+                    onClick={handleAddCustomCondition}
                     className="h-11 rounded-xl border-2 border-black bg-white px-3 text-sm font-black text-black transition hover:bg-black hover:text-white"
                   >
                     추가
