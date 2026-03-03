@@ -662,6 +662,21 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
     fetchClothingRecommendation,
   ]);
 
+  const previewClothingButtonLabel = useMemo(() => {
+    if (!enableClothingModalPreview) return undefined;
+    const currentTemperature = clothingData?.temperature ?? data?.airQuality?.temp;
+
+    if (typeof currentTemperature !== "number" || Number.isNaN(currentTemperature)) {
+      return "옷차림(현재날씨 확인중)";
+    }
+
+    const normalized = Number.isInteger(currentTemperature)
+      ? `${currentTemperature}`
+      : currentTemperature.toFixed(1).replace(/\.0$/, "");
+
+    return `옷차림(현재날씨 ${normalized}도)`;
+  }, [clothingData?.temperature, data?.airQuality?.temp, enableClothingModalPreview]);
+
   useEffect(() => {
     if (isHeroLoading) {
       if (loadingStartedAtRef.current === null) {
@@ -807,6 +822,7 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
           isConditionButtonDisabled={isProfileRefreshing}
           onOpenClothingModal={enableClothingModalPreview ? handleOpenClothingModal : undefined}
           isClothingButtonDisabled={isClothingCardLoading}
+          clothingButtonLabel={previewClothingButtonLabel}
           isLoading={isHeroLoading}
           loadingCaption={heroLoadingCaption}
           isError={isHeroError}
