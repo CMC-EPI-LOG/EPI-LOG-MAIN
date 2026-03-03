@@ -298,9 +298,6 @@ test('왜 그런가요 섹션은 3줄 요약과 자세히 보기만 제공하고
   await expect(summaryList.locator('li')).toHaveCount(3);
   await expect(page.getByText('아이를 위해 지금 결정하세요')).toHaveCount(0);
   await expect(detailToggle).toBeVisible();
-  await expect(detailToggle).toHaveAttribute('aria-expanded', 'false');
-
-  await detailToggle.click();
   await expect(detailToggle).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByTestId('insight-detail-content')).toContainText(
     '실외 활동은 가능하지만 활동량을 중강도로 제한하는 것이 안전해요.',

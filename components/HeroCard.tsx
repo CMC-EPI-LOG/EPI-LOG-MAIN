@@ -185,7 +185,7 @@ export default function HeroCard({
       className="col-span-2 min-h-[460px] bento-card relative flex flex-col items-center p-5 md:min-h-[540px] md:p-6"
     >
       <div className="absolute left-5 top-5 z-10 md:left-6 md:top-6">
-        <div className="flex w-[min(270px,calc(100vw-88px))] flex-col gap-2">
+        <div className="inline-grid max-w-[min(290px,calc(100vw-88px))] grid-cols-1 gap-2">
           {onOpenAgeModal && (
             <motion.button
               type="button"
@@ -200,7 +200,7 @@ export default function HeroCard({
               data-testid="hero-age-open"
             >
               <span aria-hidden="true">👶</span>
-              <span className="min-w-0 truncate text-left">{ageSummary}</span>
+              <span className="min-w-0 text-left">{ageSummary}</span>
             </motion.button>
           )}
 
@@ -218,7 +218,7 @@ export default function HeroCard({
               data-testid="hero-condition-open"
             >
               <span aria-hidden="true">🩺</span>
-              <span className="min-w-0 truncate text-left">{conditionSummary || "질환: 해당 없음"}</span>
+              <span className="min-w-0 text-left">{conditionSummary || "질환: 해당 없음"}</span>
             </motion.button>
           )}
         </div>

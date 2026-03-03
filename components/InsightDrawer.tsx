@@ -43,7 +43,7 @@ export default function InsightDrawer({
   isLoading = false,
 }: InsightDrawerProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [isDetailExpanded, setIsDetailExpanded] = useState(false);
+  const [isDetailExpanded, setIsDetailExpanded] = useState(true);
   const [feedback, setFeedback] = useState<'helpful' | 'not_helpful' | null>(null);
   const { logEvent } = useLogger();
 
