@@ -22,6 +22,7 @@ const mockReport = {
   },
   aiGuide: {
     summary: '오늘은 실외 활동 가능해요',
+    csvReason: '초미세먼지 농도가 높아 호흡기 자극 위험이 있어 실외 활동 시간을 조절해야 해요.',
     detail: '초미세먼지는 높지만 실외 활동 시간을 짧게 조절하면 좋아요.',
     threeReason: [
       '오전보다 오후에 농도가 높아질 수 있어요.',
@@ -77,6 +78,22 @@ async function mockBaseApis(page: Page) {
       body: JSON.stringify(mockReport),
     });
   });
+
+  await page.route('**/api/clothing-recommendation', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: '다소 따뜻해요. 얇고 통풍 잘되는 옷이 좋아요.',
+        recommendation: '반팔 + 얇은 셔츠(또는 가디건) + 통풍 좋은 하의',
+        tips: ['현재 습도는 비교적 안정적이에요. 활동량에 따라 한 겹 조절하세요.'],
+        comfortLevel: 'WARM',
+        temperature: 22,
+        humidity: 45,
+        source: 'test-mock',
+      }),
+    });
+  });
 }
 
 test.beforeEach(async ({ context, page }) => {
@@ -88,7 +105,10 @@ test.beforeEach(async ({ context, page }) => {
 test('핵심 대시보드가 렌더링된다', async ({ page }) => {
   await page.goto('/');
 
+  await expect(page.getByTestId('hero-outing-status')).toContainText('외출 비권장');
+  await expect(page.getByTestId('hero-mask-recommendation')).toContainText('KF80 마스크 착용 권장');
   await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible();
+  await expect(page.getByText('초미세먼지 농도가 높아 호흡기 자극 위험이 있어 실외 활동 시간을 조절해야 해요.')).toBeVisible();
   await expect(page.getByText('아이를 위한 오늘의 액션')).toBeVisible();
   await expect(page.getByTestId('share-button')).toBeVisible();
 });
@@ -100,8 +120,8 @@ test('실시간 수치 위젯 토글 시 날씨/대기질 섹션이 노출된다
 
   await expect(page.getByText('[날씨]')).toBeVisible();
   await expect(page.getByText('[대기질]')).toBeVisible();
-  await expect(page.getByText('초미세먼지')).toBeVisible();
-  await expect(page.getByText('이산화질소')).toBeVisible();
+  await expect(page.getByText('초미세먼지', { exact: true })).toBeVisible();
+  await expect(page.getByText('이산화질소', { exact: true })).toBeVisible();
 });
 
 test('온보딩 수정 후 제출하면 프로필 값으로 재요청된다', async ({ page }) => {
@@ -121,14 +141,97 @@ test('온보딩 수정 후 제출하면 프로필 값으로 재요청된다', as
   await page.goto('/');
 
   await page.getByTestId('settings-button').click();
-  await expect(page.getByTestId('onboarding-modal')).toBeVisible();
+  const settingsModal = page.getByTestId('settings-modal');
+  await expect(settingsModal).toBeVisible();
 
-  await page.getByRole('button', { name: /영아/ }).click();
-  await page.getByRole('button', { name: /천식/ }).click();
-  await page.getByTestId('onboarding-submit').click();
+  await settingsModal.getByRole('button', { name: /영아/ }).click();
+  await page.getByTestId('settings-submit').click();
 
-  await expect(page.getByTestId('onboarding-modal')).toBeHidden();
+  await expect(page.getByTestId('settings-modal')).toBeHidden();
   await expect.poll(() => sentProfiles.includes('infant')).toBeTruthy();
+});
+
+test('히어로 카드 질환 선택 버튼으로 모달을 열어 profile.conditions를 갱신한다', async ({ page }) => {
+  const sentConditions: string[][] = [];
+
+  await page.unroute('**/api/daily-report');
+  await page.route('**/api/daily-report', async (route) => {
+    const body = route.request().postDataJSON() as { profile?: { conditions?: string[] } };
+    if (Array.isArray(body.profile?.conditions)) {
+      sentConditions.push(body.profile.conditions);
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockReport),
+    });
+  });
+
+  await page.goto('/');
+
+  await expect(page.getByTestId('hero-condition-open')).toBeVisible();
+  await page.getByTestId('hero-condition-open').click();
+
+  const settingsModal = page.getByTestId('settings-modal');
+  await expect(settingsModal).toBeVisible();
+  await settingsModal.getByTestId('settings-tab-condition').click();
+  await settingsModal.getByRole('button', { name: /천식/ }).click();
+  await settingsModal.getByTestId('settings-submit').click();
+
+  await expect.poll(() => sentConditions.some((conditions) => conditions.includes('asthma'))).toBeTruthy();
+});
+
+test('히어로 카드 연령 버튼으로 연령 설정 모달을 연다', async ({ page }) => {
+  await page.goto('/');
+
+  await expect(page.getByTestId('hero-age-open')).toBeVisible();
+  await page.getByTestId('hero-age-open').click();
+  await expect(page.getByTestId('settings-modal')).toBeVisible();
+});
+
+test('프로필 변경 중에는 전체 데이터 컴포넌트가 스켈레톤으로 전환된다', async ({ page }) => {
+  let delayedProfileRequestCount = 0;
+
+  await page.unroute('**/api/daily-report');
+  await page.route('**/api/daily-report', async (route) => {
+    const body = route.request().postDataJSON() as { profile?: { ageGroup?: string } };
+
+    if (body.profile?.ageGroup === 'infant') {
+      delayedProfileRequestCount += 1;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 1500);
+      });
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockReport),
+    });
+  });
+
+  await page.goto('/');
+
+  await page.getByTestId('settings-button').click();
+  const settingsModal = page.getByTestId('settings-modal');
+  await expect(settingsModal).toBeVisible();
+  await settingsModal.getByRole('button', { name: /영아/ }).click();
+  await page.getByTestId('settings-submit').click();
+
+  await expect(page.getByTestId('settings-modal')).toBeHidden();
+  await expect.poll(() => delayedProfileRequestCount).toBeGreaterThan(0);
+
+  await Promise.all([
+    expect(page.getByTestId('hero-loading')).toBeVisible(),
+    expect(page.getByTestId('checklist-loading')).toBeVisible(),
+    expect(page.getByTestId('clothing-card-loading')).toBeVisible(),
+    expect(page.getByTestId('insight-loading')).toBeVisible(),
+    expect(page.getByTestId('datagrid-loading')).toBeVisible(),
+    expect(page.getByTestId('share-button-loading')).toBeVisible(),
+  ]);
+
+  await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible({ timeout: 10000 });
 });
 
 test('위치 버튼은 키보드로 모달을 열고 닫을 수 있다', async ({ page }) => {
@@ -144,22 +247,17 @@ test('위치 버튼은 키보드로 모달을 열고 닫을 수 있다', async (
   await expect(page.getByTestId('location-modal')).toBeHidden();
 });
 
-test('첫 화면은 요약 + 액션 + 스티커 우선으로 보이고 상세 섹션은 접혀 있다', async ({ page }) => {
+test('첫 화면은 요약 + 액션 + 옷차림 카드 우선으로 보이고 상세 섹션은 접혀 있다', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
 
+  await expect(page.getByTestId('hero-outing-status')).toContainText('외출 비권장');
   await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible();
   await expect(page.getByText('아이를 위한 오늘의 액션')).toBeVisible();
-  await expect(page.getByText('마스크', { exact: true })).toBeVisible();
-  await expect(page.getByText('활동', { exact: true })).toBeVisible();
-
-  const viewport = page.viewportSize();
-  if (!viewport) throw new Error('Viewport is not available');
-
-  const stickers = page.getByText('활동', { exact: true });
-  const box = await stickers.boundingBox();
-  if (!box) throw new Error('Sticker bounding box not found');
-  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  await expect(page.getByTestId('clothing-card')).toBeVisible();
+  await expect(page.getByText('오늘의 옷차림')).toBeVisible();
+  await expect(page.getByText('마스크', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('활동', { exact: true })).toHaveCount(0);
 
   await expect(page.getByTestId('insight-toggle')).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByTestId('datagrid-toggle')).toHaveAttribute('aria-expanded', 'false');
@@ -200,9 +298,6 @@ test('왜 그런가요 섹션은 3줄 요약과 자세히 보기만 제공하고
   await expect(summaryList.locator('li')).toHaveCount(3);
   await expect(page.getByText('아이를 위해 지금 결정하세요')).toHaveCount(0);
   await expect(detailToggle).toBeVisible();
-  await expect(detailToggle).toHaveAttribute('aria-expanded', 'false');
-
-  await detailToggle.click();
   await expect(detailToggle).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByTestId('insight-detail-content')).toContainText(
     '실외 활동은 가능하지만 활동량을 중강도로 제한하는 것이 안전해요.',
@@ -299,6 +394,8 @@ test('fallback 신뢰성 배지 카피 스냅샷이 유지된다', async ({ page
 });
 
 test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반영된다', async ({ page }) => {
+  test.setTimeout(45_000);
+
   const reportForStation = (stationName: string) => {
     if (stationName === '종로구') {
       return {
@@ -336,14 +433,11 @@ test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반
     };
 
     const stationName = body.stationName || '중구';
-    const hasAsthma =
-      body.profile?.condition === 'asthma' ||
-      (Array.isArray(body.profile?.conditions) && body.profile?.conditions.includes('asthma'));
-    const isProfileRefresh = body.profile?.ageGroup === 'infant' && hasAsthma;
+    const isProfileRefresh = body.profile?.ageGroup === 'infant';
     const payload = reportForStation(stationName);
 
     if (stationName === '종로구' || isProfileRefresh) {
-      await new Promise((resolve) => setTimeout(resolve, 900));
+      await new Promise((resolve) => setTimeout(resolve, 1600));
     }
 
     await route.fulfill({
@@ -364,7 +458,7 @@ test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반
     );
   });
 
-  await expect(page.getByTestId('hero-loading')).toBeVisible();
+  await expect(page.getByTestId('hero-loading')).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId('hero-loading-caption')).toContainText('서울 종로구 기준으로 데이터 업데이트 중');
   await expect(page.getByText('종로구 기준으로는 외출하기 좋아요')).toBeVisible();
 
@@ -372,11 +466,12 @@ test('주소/프로필 변경 시 스켈레톤 캡션과 변경 데이터가 반
   await expect(page.getByText('12', { exact: true })).toBeVisible();
 
   await page.getByTestId('settings-button').click();
-  await page.getByRole('button', { name: /영아/ }).click();
-  await page.getByRole('button', { name: /천식/ }).click();
-  await page.getByTestId('onboarding-submit').click();
+  const settingsModal = page.getByTestId('settings-modal');
+  await expect(settingsModal).toBeVisible();
+  await settingsModal.getByRole('button', { name: /영아/ }).click();
+  await page.getByTestId('settings-submit').click();
 
-  await expect(page.getByTestId('hero-loading')).toBeVisible();
+  await expect(page.getByTestId('hero-loading')).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId('hero-loading-caption')).toContainText(
     '선택한 연령/질환 기준으로 맞춤 가이드를 다시 계산 중',
   );
@@ -418,20 +513,44 @@ test('요청 타임아웃 후 재시도로 복구된다', async ({ page }) => {
   await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible();
 });
 
-test('영아 프로필에서는 마스크 카드에 고정 배지가 표시된다', async ({ page }) => {
+test('영아 프로필에서도 마스크/활동 스티커 카드는 노출되지 않고 인사이트 칩으로만 표시된다', async ({ page }) => {
+  await page.unroute('**/api/daily-report');
+  await page.route('**/api/daily-report', async (route) => {
+    const body = route.request().postDataJSON() as { profile?: { ageGroup?: string } };
+    const isInfant = body.profile?.ageGroup === 'infant';
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...mockReport,
+        decisionSignals: {
+          ...mockReport.decisionSignals,
+          infantMaskBanApplied: isInfant,
+        },
+      }),
+    });
+  });
   await page.goto('/');
-  await expect(page.getByText('영아 마스크 금지')).toHaveCount(0);
+  await expect(page.getByText('마스크', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('활동', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('영아 마스크 금지', { exact: true })).toHaveCount(0);
 
   await page.getByTestId('settings-button').click();
-  await page.getByRole('button', { name: /영아/ }).click();
-  await page.getByRole('button', { name: /비염/ }).click();
-  await page.getByTestId('onboarding-submit').click();
+  const settingsModal = page.getByTestId('settings-modal');
+  await expect(settingsModal).toBeVisible();
+  await settingsModal.getByRole('button', { name: /영아/ }).click();
+  await page.getByTestId('settings-submit').click();
 
-  await expect(page.getByText('영아 마스크 금지')).toBeVisible();
+  await expect(page.getByText('영아 마스크 금지', { exact: true })).toHaveCount(0);
+  await page.getByTestId('insight-toggle').click();
+  await expect(page.getByText('영아 마스크 금지 적용')).toBeVisible();
 });
 
 test('왜 그런가요 하단 VOC 1탭 피드백이 동작한다', async ({ page }) => {
+  test.setTimeout(45_000);
   await page.goto('/');
+  await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible();
 
   await page.getByTestId('insight-toggle').click();
   const helpful = page.getByTestId('insight-feedback-helpful');

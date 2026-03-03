@@ -11,6 +11,7 @@ interface ActionStickerCardProps {
   isPositive: boolean;
   fixedBadgeText?: string;
   delay?: number;
+  isLoading?: boolean;
 }
 
 export default function ActionStickerCard({
@@ -20,8 +21,32 @@ export default function ActionStickerCard({
   isPositive,
   fixedBadgeText,
   delay = 0,
+  isLoading = false,
 }: ActionStickerCardProps) {
   const Icon = icon;
+
+  if (isLoading) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay, duration: 0.4 }}
+        className="relative bento-card flex flex-col items-center p-4 text-center md:p-5"
+        data-testid="action-sticker-loading"
+      >
+        {fixedBadgeText && (
+          <div className="absolute left-1/2 top-2.5 h-4 w-24 -translate-x-1/2 rounded-full border border-red-200 skeleton-block md:top-3" />
+        )}
+        <div className="flex w-full flex-1 flex-col items-center justify-center pt-5 text-center md:pt-6">
+          <div className="mb-2 rounded-full p-2 skeleton-block">
+            <Icon className="h-7 w-7 text-transparent" />
+          </div>
+          <p className="mb-1 text-xs font-bold text-gray-500">{label}</p>
+          <div className="h-8 w-20 rounded-md skeleton-block md:h-9 md:w-24" />
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div

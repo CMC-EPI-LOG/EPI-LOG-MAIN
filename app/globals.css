@@ -151,6 +151,29 @@ body::before {
     font-weight: 800;
     color: #6b7280;
   }
+
+  @keyframes skeleton-shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .skeleton-block {
+    position: relative;
+    overflow: hidden;
+    background: #e5e7eb;
+  }
+
+  .skeleton-block::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  }
   
   /* Button press interaction */
   .btn-press {

@@ -17,6 +17,7 @@ interface DaumPostcodeData {
   address: string;
   bname: string;
   sigungu: string;
+  sido?: string;
 }
 
 export default function LocationHeader({ currentLocation, onLocationSelect }: LocationHeaderProps) {
@@ -25,7 +26,7 @@ export default function LocationHeader({ currentLocation, onLocationSelect }: Lo
 
   const handleComplete = (data: DaumPostcodeData) => {
     const displayAddress = data.bname || data.sigungu || data.address;
-    const stationQuery = [data.sigungu, data.bname].filter(Boolean).join(' ').trim();
+    const stationQuery = [data.sido, data.sigungu, data.bname].filter(Boolean).join(' ').trim();
 
     onLocationSelect(displayAddress, stationQuery || displayAddress);
     setIsSearchOpen(false);

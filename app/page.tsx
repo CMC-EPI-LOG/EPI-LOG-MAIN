@@ -3,16 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUserStore, type UserProfile } from "@/store/useUserStore";
 import HeroCard from "@/components/HeroCard";
-import ActionStickerCard from "@/components/ActionStickerCard";
 import InsightDrawer from "@/components/InsightDrawer";
 import DataGrid from "@/components/DataGrid";
-import OnboardingModal from "@/components/OnboardingModal";
+import ProfileSettingsModal from "@/components/ProfileSettingsModal";
 import InstallPrompt from "@/components/InstallPrompt";
 import LocationHeader from "@/components/LocationHeader";
 import ShareButton from "@/components/ShareButton";
 import ActionChecklistCard from "@/components/ActionChecklistCard";
+import ClothingCard from "@/components/ClothingCard";
 import AiNotice from "@/components/AiNotice";
-import { Activity, Loader2, Settings, Shield } from "lucide-react";
+import { Loader2, Settings } from "lucide-react";
 import * as Sentry from "@sentry/nextjs";
 import toast from "react-hot-toast";
 import { getCharacterPath } from "@/lib/characterUtils";
@@ -37,6 +37,7 @@ const LEGACY_TEST_LOCATION_EVENT = "epilog:test-location-select";
 
 type LoadErrorKind = "timeout" | "fetch" | null;
 type FetchCause = "initial" | "location" | "profile" | "retry";
+type SettingsModalTab = "age" | "condition";
 
 interface DailyReportData {
   airQuality?: AirQualityView;
@@ -44,6 +45,16 @@ interface DailyReportData {
   decisionSignals?: DecisionSignals;
   reliability?: ReliabilityMeta;
   timestamp?: string;
+}
+
+interface ClothingRecommendationData {
+  summary: string;
+  recommendation: string;
+  tips: string[];
+  comfortLevel?: string;
+  temperature: number;
+  humidity: number;
+  source?: string;
 }
 
 const KNOWN_CONDITION_LABELS: Record<string, string> = {
@@ -84,6 +95,19 @@ function buildConditionContextValue(profile: UserProfile | null | undefined): st
   return merged.length > 0 ? merged.join(',') : 'none';
 }
 
+function buildConditionSummary(profile: UserProfile | null | undefined): string {
+  if (!profile) return '질환: 해당 없음';
+
+  const knownLabels = normalizeKnownConditions(profile)
+    .filter((condition) => condition !== 'none')
+    .map((condition) => KNOWN_CONDITION_LABELS[condition] || condition);
+  const custom = Array.isArray(profile.customConditions) ? profile.customConditions.filter(Boolean) : [];
+  const merged = [...knownLabels, ...custom];
+
+  if (merged.length === 0) return '질환: 해당 없음';
+  return `질환: ${merged.join(', ')}`;
+}
+
 function parseKstDataTimeToEpoch(raw?: string | null): number | null {
   if (!raw) return null;
   const matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
@@ -108,17 +132,62 @@ export default function Home() {
   const [data, setData] = useState<DailyReportData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsModalTab, setSettingsModalTab] = useState<SettingsModalTab>("age");
   const [displayRegion, setDisplayRegion] = useState(location.stationName);
   const [loadErrorKind, setLoadErrorKind] = useState<LoadErrorKind>(null);
   const [isLocationRefreshing, setIsLocationRefreshing] = useState(false);
   const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
+  const [clothingData, setClothingData] = useState<ClothingRecommendationData | null>(null);
+  const [isClothingLoading, setIsClothingLoading] = useState(false);
   const activeControllerRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
+  const clothingRequestSeqRef = useRef(0);
   const activeFetchCauseRef = useRef<FetchCause>("initial");
   const loadingStartedAtRef = useRef<number | null>(null);
   const lastFallbackExposeKeyRef = useRef<string | null>(null);
   const airLatestInFlightRef = useRef(false);
+
+  const fetchClothingRecommendation = useCallback(async (
+    temperature?: number,
+    humidity?: number,
+  ) => {
+    const requestSeq = ++clothingRequestSeqRef.current;
+    const safeTemperature = typeof temperature === "number" ? temperature : 22;
+    const safeHumidity = typeof humidity === "number" ? humidity : 45;
+
+    setIsClothingLoading(true);
+    try {
+      const res = await fetch("/api/clothing-recommendation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          temperature: safeTemperature,
+          humidity: safeHumidity,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to fetch clothing recommendation");
+
+      const result = (await res.json()) as ClothingRecommendationData;
+      if (requestSeq !== clothingRequestSeqRef.current) return;
+      setClothingData(result);
+    } catch (error) {
+      if (requestSeq !== clothingRequestSeqRef.current) return;
+      console.error("[UI] Clothing recommendation failed:", error);
+      setClothingData({
+        summary: "현재 날씨 기준으로 겉옷을 한 겹 준비해 주세요.",
+        recommendation: "가벼운 레이어드 복장",
+        tips: ["실내외 온도차에 대비해 탈착 가능한 겉옷을 추천해요."],
+        comfortLevel: "UNKNOWN",
+        temperature: Number(safeTemperature),
+        humidity: Number(safeHumidity),
+        source: "ui-fallback",
+      });
+    } finally {
+      if (requestSeq !== clothingRequestSeqRef.current) return;
+      setIsClothingLoading(false);
+    }
+  }, []);
 
   const fetchData = useCallback(async (
     currentLocation: typeof location,
@@ -163,6 +232,7 @@ export default function Home() {
       const result = (await res.json()) as DailyReportData;
       if (requestSeq !== requestSeqRef.current) return;
       setData(result);
+      void fetchClothingRecommendation(result.airQuality?.temp, result.airQuality?.humidity);
       setLoadErrorKind(null);
     } catch (error) {
       if (requestSeq !== requestSeqRef.current) return;
@@ -193,7 +263,7 @@ export default function Home() {
       setIsLocationRefreshing(false);
       setIsProfileRefreshing(false);
     }
-  }, [data]);
+  }, [data, fetchClothingRecommendation]);
 
   const refreshAirLatest = useCallback(async () => {
     const stationName = location.stationName?.trim();
@@ -224,6 +294,7 @@ export default function Home() {
         // so that temp/humidity and new pollutant values are reflected in the UI.
         const baseGuide: AiGuideView = {
           summary: prev.aiGuide?.summary || "확인 중...",
+          csvReason: prev.aiGuide?.csvReason,
           detail: prev.aiGuide?.detail || "",
           threeReason: prev.aiGuide?.threeReason || [],
           detailAnswer: prev.aiGuide?.detailAnswer || prev.aiGuide?.detail || "",
@@ -260,12 +331,13 @@ export default function Home() {
           timestamp: latest.timestamp || prev.timestamp,
         };
       });
+      void fetchClothingRecommendation(latestAirQuality.temp, latestAirQuality.humidity);
     } catch (error) {
       console.error("[UI] Air latest refresh failed:", error);
     } finally {
       airLatestInFlightRef.current = false;
     }
-  }, [location.stationName, profile]);
+  }, [fetchClothingRecommendation, location.stationName, profile]);
 
   useEffect(() => {
     return () => {
@@ -373,9 +445,8 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleProfileSubmit = (newProfile: UserProfile) => {
+  const commitProfileChange = useCallback((newProfile: UserProfile) => {
     setProfile(newProfile);
-    setIsModalOpen(false);
     // Avoid storing PII like nickname; keep only coarse settings.
     void logEvent("profile_changed", {
       age_group: newProfile.ageGroup,
@@ -388,6 +459,16 @@ export default function Home() {
       conditions: buildConditionContextValue(newProfile),
     });
     fetchData(location, newProfile, "profile");
+  }, [fetchData, location, logEvent, setProfile]);
+
+  const openSettingsModal = useCallback((tab: SettingsModalTab = "age") => {
+    setSettingsModalTab(tab);
+    setIsSettingsModalOpen(true);
+  }, []);
+
+  const handleSettingsSubmit = (newProfile: UserProfile) => {
+    setIsSettingsModalOpen(false);
+    commitProfileChange(newProfile);
   };
 
   const handleLocationSelect = useCallback((address: string, stationName: string) => {
@@ -434,10 +515,11 @@ export default function Home() {
     : '/Character/C2.svg'; // Default
 
   // Profile badge text
-  const profileBadge = profile?.ageGroup === "infant" ? "👶 영아(0~2세)" : 
-    profile?.ageGroup === "toddler" ? "🧒 유아(3~6세)" :
-    profile?.ageGroup === "elementary_low" ? "🎒 초등 저학년" :
-    profile?.ageGroup === "elementary_high" ? "🏫 초등 고학년" : "🧑 청소년/성인";
+  const ageSummaryText = profile?.ageGroup === "infant" ? "연령: 영아(0~2세)" : 
+    profile?.ageGroup === "toddler" ? "연령: 유아(3~6세)" :
+    profile?.ageGroup === "elementary_low" ? "연령: 초등 저학년" :
+    profile?.ageGroup === "elementary_high" ? "연령: 초등 고학년" : "연령: 청소년/성인";
+  const conditionSummaryText = buildConditionSummary(profile);
 
   const isHeroError = !data && !isLoading && loadErrorKind !== null;
   const heroErrorTitle =
@@ -447,6 +529,8 @@ export default function Home() {
       ? "네트워크 상태를 확인하고 다시 시도해주세요."
       : "잠시 후 다시 시도해주세요.";
   const isHeroLoading = isLoading || isLocationRefreshing || isProfileRefreshing;
+  const isProfileDataLoading = isProfileRefreshing;
+  const isClothingCardLoading = isProfileDataLoading || isClothingLoading;
   const refreshingMessage = isLocationRefreshing
     ? "새 주소 데이터로 업데이트 중..."
     : isProfileRefreshing
@@ -629,11 +713,6 @@ export default function Home() {
     >
       {/* Header */}
       <header className="max-w-2xl mx-auto flex items-center justify-between mb-4 pb-3 border-b-2 border-black">
-        <LocationHeader
-          currentLocation={displayRegion}
-          onLocationSelect={handleLocationSelect}
-        />
-        
         <div className="flex items-center gap-2 font-brand text-2xl font-black tracking-tight">
           <img
             src="/icon.png"
@@ -646,9 +725,14 @@ export default function Home() {
           />
           <span>아이숨</span>
         </div>
+
+        <LocationHeader
+          currentLocation={displayRegion}
+          onLocationSelect={handleLocationSelect}
+        />
         
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => openSettingsModal("age")}
           className="p-2 rounded-full hover:bg-black/10 transition-all bento-card-sm bg-white"
           aria-label={isOnboarded ? "설정 변경" : "맞춤 설정 시작"}
           data-testid="settings-button"
@@ -677,8 +761,15 @@ export default function Home() {
         <HeroCard
           character={characterPath}
           decisionText={data?.aiGuide?.summary || "지금은 정보를 가져올 수 없어요 😢"}
+          reasonText={data?.aiGuide?.csvReason}
+          maskRecommendation={data?.aiGuide?.maskRecommendation}
           grade={data?.airQuality?.grade || "NORMAL"}
-          profileBadge={profileBadge}
+          ageSummary={ageSummaryText}
+          conditionSummary={conditionSummaryText}
+          onOpenAgeModal={() => openSettingsModal("age")}
+          isAgeButtonDisabled={isProfileRefreshing}
+          onOpenConditionModal={() => openSettingsModal("condition")}
+          isConditionButtonDisabled={isProfileRefreshing}
           isLoading={isHeroLoading}
           loadingCaption={heroLoadingCaption}
           isError={isHeroError}
@@ -695,26 +786,20 @@ export default function Home() {
           actionItems={data?.aiGuide?.actionItems || []}
           delay={0.7}
           grade={data?.airQuality?.grade}
+          isLoading={isProfileDataLoading}
         />
 
-        {/* Action Stickers - 2 column grid */}
-        <ActionStickerCard
-          icon={Shield}
-          label="마스크"
-          statusText={data?.aiGuide?.maskRecommendation || "확인 중..."}
-          isPositive={data?.aiGuide?.maskRecommendation?.includes("필요 없어요") || false}
-          fixedBadgeText={profile?.ageGroup === "infant" ? "영아 마스크 금지" : undefined}
-          delay={0.8}
-        />
-        
-        <ActionStickerCard
-          icon={Activity}
-          label="활동"
-          statusText={data?.aiGuide?.activityRecommendation || "확인 중..."}
-          isPositive={data?.aiGuide?.activityRecommendation?.includes("맘껏") || false}
-          delay={0.9}
-        />
-
+        {(data?.airQuality || isClothingCardLoading) && (
+          <ClothingCard
+            summary={clothingData?.summary}
+            recommendation={clothingData?.recommendation}
+            tips={clothingData?.tips}
+            temperature={clothingData?.temperature ?? data?.airQuality?.temp}
+            humidity={clothingData?.humidity ?? data?.airQuality?.humidity}
+            delay={0.85}
+            isLoading={isClothingCardLoading}
+          />
+        )}
         {/* Insight Drawer - Collapsible */}
         <InsightDrawer
           threeReason={data?.aiGuide?.threeReason}
@@ -731,18 +816,19 @@ export default function Home() {
           onRefreshData={freshnessMeta.needsRefresh ? handleFreshnessRefresh : undefined}
           isRefreshing={isRefreshing}
           delay={1.0}
+          isLoading={isProfileDataLoading}
         />
 
         {/* Data Grid - Hidden by default */}
-        {data?.airQuality && (
+        {(data?.airQuality || isProfileDataLoading) && (
           <DataGrid
             data={{
-              pm25: data.airQuality.pm25_value || 0,
-              pm10: data.airQuality.pm10_value || 0,
-              o3: data.airQuality.o3_value || 0,
-              temperature: data.airQuality.temp || 0,
-              humidity: data.airQuality.humidity || 0,
-              no2: data.airQuality.no2_value || 0,
+              pm25: data?.airQuality?.pm25_value || 0,
+              pm10: data?.airQuality?.pm10_value || 0,
+              o3: data?.airQuality?.o3_value || 0,
+              temperature: data?.airQuality?.temp || 0,
+              humidity: data?.airQuality?.humidity || 0,
+              no2: data?.airQuality?.no2_value || 0,
             }}
             reliabilityLabel={data?.reliability?.label}
             reliabilityDescription={data?.reliability?.description}
@@ -754,25 +840,27 @@ export default function Home() {
             onRefreshData={freshnessMeta.needsRefresh ? handleFreshnessRefresh : undefined}
             isRefreshing={isRefreshing}
             delay={1.1}
+            isLoading={isProfileDataLoading}
           />
         )}
         </div>
       </div>
 
       {/* Sticky Share Button */}
-      {data && (
+      {(data || isProfileDataLoading) && (
         <div className="fixed bottom-2 left-4 right-4 mx-auto max-w-2xl pb-[calc(env(safe-area-inset-bottom)+0.2rem)]">
           <ShareButton
             nickname={profile?.nickname}
             region={displayRegion}
             action={
-              data.aiGuide?.activityRecommendation?.includes("자제") ||
-              data.aiGuide?.activityRecommendation?.includes("X")
+              data?.aiGuide?.activityRecommendation?.includes("자제") ||
+              data?.aiGuide?.activityRecommendation?.includes("X")
                 ? "실내 놀이"
                 : "신나는 외출"
             }
-            summary={data.aiGuide?.summary}
-            reason={data.aiGuide?.threeReason?.[0]}
+            summary={data?.aiGuide?.summary}
+            reason={data?.aiGuide?.threeReason?.[0]}
+            isLoading={isProfileDataLoading}
           />
         </div>
       )}
@@ -784,12 +872,13 @@ export default function Home() {
         증상이 있다면 반드시 전문 의료진과 상의하세요.
       </p>
 
-      <OnboardingModal
-        key={`onboarding-${profile?.ageGroup || "default"}-${profile?.condition || "default"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isModalOpen ? "open" : "closed"}`}
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSubmit={handleProfileSubmit}
+      <ProfileSettingsModal
+        key={`settings-${settingsModalTab}-${profile?.ageGroup || "default"}-${profile?.condition || "none"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isSettingsModalOpen ? "open" : "closed"}`}
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        onSubmit={handleSettingsSubmit}
         currentProfile={profile}
+        initialTab={settingsModalTab}
       />
 
       {!isLoading && <InstallPrompt />}
