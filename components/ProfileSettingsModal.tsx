@@ -166,14 +166,14 @@ export default function ProfileSettingsModal({
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
-            className="relative flex max-h-[min(90vh,800px)] w-full max-w-md flex-col overflow-hidden rounded-[24px] border-[3px] border-black bg-white shadow-bento"
+            className="relative flex max-h-[78vh] w-full max-w-sm flex-col overflow-hidden rounded-[24px] border-[3px] border-black bg-white shadow-bento md:max-h-[700px] md:max-w-md"
             data-testid="settings-modal"
           >
-            <div className="flex-shrink-0 p-8 pb-4">
+            <div className="flex-shrink-0 p-6 pb-3 md:p-7 md:pb-4">
               <button
                 type="button"
                 onClick={onClose}
-                className="absolute right-6 top-6 z-10 rounded-full border-[3px] border-black bg-white p-2 shadow-bento-sm transition-colors hover:bg-gray-100"
+                className="absolute right-5 top-5 z-10 rounded-full border-[3px] border-black bg-white p-2 shadow-bento-sm transition-colors hover:bg-gray-100 md:right-6 md:top-6"
                 aria-label="설정 모달 닫기"
                 data-testid="settings-close"
               >
@@ -214,7 +214,7 @@ export default function ProfileSettingsModal({
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-8">
+            <div className="flex-1 overflow-y-auto overscroll-contain px-6 pb-1 md:px-7">
               <form id="settings-form" onSubmit={handleSubmit} className="space-y-6 pb-4">
                 {activeTab === 'age' ? (
                   <div>
@@ -315,15 +315,14 @@ export default function ProfileSettingsModal({
               </form>
             </div>
 
-            <div className="flex-shrink-0 p-8 pt-4">
+            <div className="flex-shrink-0 p-6 pt-3 md:p-7 md:pt-4">
               <button
                 type="submit"
                 form="settings-form"
-                className="flex w-full items-center justify-center gap-2 rounded-[24px] border-[3px] border-black bg-[#FEE500] py-5 text-xl font-black text-black shadow-bento transition-all hover:bg-[#FDD835] active:translate-y-1 active:shadow-none"
+                className="flex w-full items-center justify-center rounded-[24px] border-[3px] border-black bg-[#FEE500] py-5 text-xl font-black text-black shadow-bento transition-all hover:bg-[#FDD835] active:translate-y-1 active:shadow-none"
                 data-testid="settings-submit"
               >
                 {activeTab === 'age' ? '연령 저장' : '질환 저장'}
-                <span className="text-2xl">{activeTab === 'age' ? '👶' : '🩺'}</span>
               </button>
             </div>
           </motion.div>
