@@ -761,7 +761,7 @@ export default function Home() {
         <HeroCard
           character={characterPath}
           decisionText={data?.aiGuide?.summary || "지금은 정보를 가져올 수 없어요 😢"}
-          reasonText={data?.aiGuide?.csvReason || data?.aiGuide?.detail}
+          reasonText={data?.aiGuide?.csvReason}
           maskRecommendation={data?.aiGuide?.maskRecommendation}
           grade={data?.airQuality?.grade || "NORMAL"}
           ageSummary={ageSummaryText}
