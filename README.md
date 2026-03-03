@@ -1,218 +1,198 @@
-# EPI-LOG (에피로그)
+# EPI-LOG (아이숨, AI-Soom)
 
-대기질 기반 아이 활동 가이드 PWA. 사용자의 위치/프로필을 바탕으로 대기질 데이터와 AI 가이드를 통합해 보여줍니다.
+대기질과 사용자 프로필(연령/질환)을 결합해 아이 활동 가이드를 제공하는 서비스입니다.  
+이 저장소는 **웹 PWA(Next.js)** 와 **Apps in Toss 미니앱(Vite)** 을 함께 관리합니다.
 
-## 기술 스택
+> 이 문서는 **2026-03-04 기준 코드 상태**를 반영합니다.
 
-- 프론트엔드: Next.js 16 (App Router), React 19, TypeScript 5
-- 상태 관리: Zustand (persist, localStorage)
-- 스타일/UX: Tailwind CSS 4, Framer Motion, Lucide Icons
-- PWA: next-pwa, Web App Manifest, Service Worker
-- 유틸: react-hot-toast, react-daum-postcode
-- 분석: GA4 (gtag)
-- 백엔드(BFF): Next.js API Routes
-- 외부 연동: AirKorea 데이터 API, AI 서버 API, Kakao 지도(역지오코딩), Kakao JS SDK
+## 1. 프로젝트 구성
 
-## 시스템 아키텍처
+- `web`(루트): Next.js 16 App Router 기반 PWA + BFF API
+- `miniapp`: `miniapps/ait-webview` (Apps in Toss WebView용 앱)
+- 공통 핵심 로직: 의사결정/신뢰성 보정/프로필 정규화/분석 이벤트 컨텍스트
+
+## 2. 현재 구현된 핵심 기능
+
+### 2.1 사용자 흐름
+
+1. 위치 권한 또는 주소 검색으로 지역을 선택
+2. `/api/reverse-geocode`로 좌표를 행정구역/측정소 후보로 변환
+3. `/api/daily-report`로 대기질 + AI 가이드를 병렬 조회
+4. UI 카드(히어로/행동 체크리스트/근거/수치)를 표시
+5. 백그라운드에서 `/api/air-quality-latest`를 60초 주기로 갱신
+6. 공유/설치/로그 이벤트를 수집
+
+### 2.2 의사결정 규칙
+
+- `pm2.5`, `o3` 기준으로 기본 위험도 계산
+- 오존 고위험 시 행동 가이드에 `오후 2~5시 외출 금지` 강제 반영
+- 영아(`infant`)는 마스크 권고를 금지 문구로 교체하고 위험 행동 문구 제거
+- 연령/질환 + 온습도 기반 가중(천식/비염/아토피 및 저습/저온/고온 조건)
+- 최종 의사결정 신호를 `decisionSignals`로 반환
+
+### 2.3 신뢰성(측정소 보정)
+
+- 주소 기반 측정소 후보군을 생성하고 순차 조회
+- 시도(`sido`) 불일치 응답은 필터링
+- 알려진 "미확인 측정소 시그니처"는 무효로 간주 후 다음 후보 시도
+- 결과 상태를 아래 3단계로 표기
+- `LIVE`: 선택 지역 실측 반영
+- `STATION_FALLBACK`: 인근 측정소 자동 보정
+- `DEGRADED`: 실측 매칭 실패로 대체 데이터 사용
+
+### 2.4 UI/UX
+
+- Hero + 체크리스트 + 근거 Drawer + 실시간 수치 DataGrid
+- 질환 복수 선택 + 사용자 직접 입력(최대 5개) 지원
+- 옷차림 추천 모달(웹): `/api/clothing-recommendation` + 실패 시 서버 폴백
+- 지연 데이터 배지 및 수동 재조회 버튼
+- Web Share API 우선, 미지원 시 클립보드 복사
+- 비-TOSS 환경에서만 PWA 설치 코치 노출
+
+### 2.5 계측/로그
+
+- GA4 페이지뷰 및 코어 이벤트(`location_changed`, `profile_changed`, `share_clicked`, `retry_clicked` 등)
+- UTM 저장/전파
+- `session_end`(beacon) 포함 사용자 이벤트를 `/api/log`로 저장(MongoDB)
+- Sentry 태그/컨텍스트 연동(측정소, 신뢰성 상태, 프로필)
+
+## 3. 웹 아키텍처(요약)
 
 ```mermaid
 flowchart LR
-  User[사용자] --> UI[Next.js Client UI]
-  UI --> Store[Zustand Persist]
-  UI -->|POST| BFF[Next.js API Routes]
-  UI -->|POST| Geo[BFF: Reverse Geocode]
-  Geo -->|GET| Kakao[Kakao Coord2Region API]
-  BFF -->|GET| Air[AirKorea Data API]
-  BFF -->|POST| AI[AI Advice API]
-  UI -->|Install/Share| PWA[PWA + Web Share]
-  UI -->|GA4| GA[Google Analytics]
-  BFF --> UI
+  U[User] --> UI[Next.js Client]
+  UI --> S[Zustand Persist Store]
+  UI --> DR[/api/daily-report]
+  UI --> RG[/api/reverse-geocode]
+  UI --> AL[/api/air-quality-latest]
+  UI --> CR[/api/clothing-recommendation]
+  DR --> AIR[(Data API / air-quality)]
+  DR --> AI[(AI API / advice)]
+  RG --> KAKAO[(Kakao coord2region)]
+  CR --> AI
+  UI --> LOG[/api/log]
+  LOG --> MDB[(MongoDB)]
+  UI --> GA[(GA4)]
+  UI --> SEN[(Sentry)]
 ```
 
-## System Flow (Sequence Diagram)
+## 4. API 엔드포인트 (웹 루트)
 
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant C as Client (app/page.tsx)
-  participant S as Store (zustand)
-  participant G as BFF (/api/reverse-geocode)
-  participant B as BFF (/api/daily-report)
-  participant K as Kakao API
-  participant A as AirKorea API
-  participant AI as AI API
+- `POST /api/daily-report`
+- 대기질/AI 병렬 조회
+- 측정소 후보 보정 + 신뢰성 메타 + 의사결정 신호 반환
 
-  U->>C: 앱 접속
-  C->>S: 로컬 저장된 위치/프로필 로딩
-  C->>C: geolocation 요청
-  C->>G: POST /api/reverse-geocode (lat,lng)
-  G->>K: 좌표->행정동/구 변환
-  K-->>G: address, regionName(동), stationCandidate(구)
-  G-->>C: regionName, stationCandidate
-  C->>S: 위치 업데이트 (stationName=구)
-  C->>B: POST /api/daily-report (stationName, profile)
-  par AirKorea
-    B->>A: GET /api/air-quality?stationName=...
-    A-->>B: 대기질 데이터
-  and AI
-    B->>AI: POST /api/advice (stationName, userProfile)
-    AI-->>B: AI 가이드
-  end
-  B-->>C: airQuality + aiGuide + timestamp
-  C-->>U: 대기질/활동 가이드 표시
+- `GET /api/air-quality-latest?stationName=...`
+- 경량 실시간 대기질 갱신용 엔드포인트
+
+- `POST /api/clothing-recommendation`
+- 온습도 기반 옷차림 추천
+- AI 실패 시 BFF 내 규칙 폴백
+
+- `POST /api/reverse-geocode`
+- 좌표 -> 주소/표시지역/측정소 후보 변환 (Kakao API)
+
+- `POST /api/log`
+- 세션 단위 사용자 이벤트 적재(MongoDB upsert)
+
+더 자세한 스펙은 [API_GUIDE.md](./API_GUIDE.md) 참고.
+
+## 5. 디렉터리 구조
+
+```text
+.
+├─ app/                       # Next.js App Router + API routes
+├─ components/                # 웹 UI 컴포넌트
+├─ hooks/                     # 로깅/트래킹 훅
+├─ lib/                       # 의사결정/신뢰성/분석 유틸
+├─ models/                    # MongoDB 모델(UserLog)
+├─ store/                     # Zustand 스토어
+├─ tests/
+│  ├─ unit/                   # Vitest 단위 테스트
+│  └─ e2e/                    # Playwright E2E
+├─ scripts/                   # 신뢰성 스모크 등 운영 스크립트
+├─ miniapps/ait-webview/      # Apps in Toss 미니앱(Vite)
+└─ output/                    # 테스트/스모크 산출물
 ```
 
-## Architecture Overview
+## 6. 환경 변수
 
-- 클라이언트 중심 PWA 구조이며, UI는 `app/page.tsx`에서 위치/프로필 기반 데이터를 요청합니다.
-- BFF(`/app/api/*`)가 외부 데이터(대기질/AI)를 병렬로 호출하고 단일 응답으로 통합합니다.
-- 위치는 브라우저 geolocation + Kakao 역지오코딩을 사용하고, UI 표시(동)와 데이터 매칭(구)을 분리합니다.
-- 사용자 상태(위치/프로필)는 `zustand` + `persist`로 저장되어 재방문 시 복원됩니다.
-- GA4 스크립트를 통해 페이지뷰 이벤트를 수집하며, PWA 설치/공유 UX를 제공합니다.
+### 6.1 웹(루트)
 
-## 상세 기능 요구사항 (Functional Requirements)
+- `NEXT_PUBLIC_DATA_API_URL`
+- `NEXT_PUBLIC_AI_API_URL`
+- `KAKAO_REST_API_KEY`
+- `NEXT_PUBLIC_KAKAO_JS_KEY`
+- `NEXT_PUBLIC_SITE_URL`
+- `NEXT_PUBLIC_GA_ID` 또는 `NEXT_PUBLIC_GA4_ID`
+- `MONGODB_URI`
+- `MONGODB_DB` (옵션)
+- `NEXT_PUBLIC_PLATFORM` (`TOSS`일 때 공유/PWA 설치 UI 일부 비노출)
 
-1. 위치 기반 데이터 수집
-   - 브라우저 위치 권한 요청 및 좌표 획득
-   - 권한 거부/실패 시 기본 위치(강남구) 기준 데이터 제공
-   - 위치 변경 시 즉시 재조회 및 토스트 피드백 제공
-2. 역지오코딩 및 주소 검색
-   - 좌표를 행정동/구 단위로 변환
-   - UI 표시는 동(regionName), 데이터 요청은 구(stationCandidate) 사용
-   - Daum 우편번호 검색으로 수동 위치 변경 지원
-3. 사용자 프로필(온보딩)
-   - 나이 그룹/건강 상태 선택
-   - 제출 시 로컬 저장 및 맞춤 결과 표시
-   - 설정 아이콘으로 재설정 가능
-4. 대기질 + AI 가이드 통합 조회
-   - AirKorea 데이터와 AI 가이드를 병렬로 요청
-   - 외부 API 실패 시 폴백 응답으로 UI 안정성 확보
-5. 맞춤 가이드 표시
-   - 대기질 등급별 색상 표시
-   - AI 요약/상세 이유/행동 지침/근거 자료 표시
-   - 마스크/활동 권장 라벨 표시
-6. 공유 및 PWA
-   - Web Share API 기반 공유(지원 불가 시 클립보드 복사)
-   - iOS/Android 설치 프롬프트 제공
-7. 분석/로그
-   - GA4 페이지뷰 자동 수집 (URL path/query 포함)
-   - 핵심 퍼널 이벤트 수집: `location_changed`, `profile_changed`, `insight_opened`, `datagrid_opened`, `share_clicked`, `retry_clicked`
-   - UTM(`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`) 저장/전파
-   - 이벤트 공통 파라미터 표준화: `station_name`, `reliability_status`, `age_group`, `condition`
-   - Sentry 태그 연동: `station`, `reliability`, `profile`
+### 6.2 미니앱(`miniapps/ait-webview`)
 
-## API 명세 (Backend Endpoints)
+- `VITE_GA_ID`
+- `VITE_SENTRY_DSN`
+- `VITE_SENTRY_ENVIRONMENT`
+- `VITE_SENTRY_RELEASE`
+- `VITE_SENTRY_TRACES_SAMPLE_RATE`
 
-### 1) `POST /api/daily-report`
+## 7. 로컬 실행
 
-대기질 데이터(AirKorea)와 AI 가이드를 통합하는 BFF 엔드포인트.
-
-**Request Body**
-```json
-{
-  "stationName": "강남구",
-  "profile": {
-    "ageGroup": "child_low",
-    "condition": "rhinitis"
-  }
-}
-```
-
-**Response**
-```json
-{
-  "airQuality": {
-    "stationName": "강남구",
-    "grade": "BAD",
-    "pm25_value": 55,
-    "pm10_value": 88,
-    "o3_value": 0.07,
-    "no2_value": 0.04,
-    "temp": 22,
-    "humidity": 45,
-    "detail": { "pm10": { "grade": 3, "value": 88 }, "pm25": { "grade": 3, "value": 55 } }
-  },
-  "aiGuide": {
-    "summary": "실외 활동 가능합니다",
-    "detail": "미세먼지 수치가 낮습니다.",
-    "activityRecommendation": "실외 활동 가능",
-    "maskRecommendation": "KF80 권장",
-    "actionItems": ["충분한 수분 섭취", "야외 활동 권장"],
-    "references": ["WHO Guidelines 2024"]
-  },
-  "decisionSignals": {
-    "pm25Grade": 3,
-    "o3Grade": 2,
-    "adjustedRiskGrade": 3,
-    "finalGrade": "BAD"
-  },
-  "reliability": {
-    "status": "LIVE",
-    "label": "최근 1시간 기준 실측 데이터",
-    "resolvedStation": "강남구"
-  },
-  "timestamp": "2026-01-28T12:34:56.789Z"
-}
-```
-
-**특이사항**
-- 내부 프로필 스키마를 AI 서버 스키마로 매핑하여 전달합니다.
-- AirKorea 응답을 UI 친화 구조로 평탄화(grade/detail + 주요 수치)합니다.
-- Air/AI를 병렬 호출(`Promise.allSettled`)하고 부분 실패 시에도 degraded 응답으로 UI를 보호합니다.
-- O3 규칙(2~5시), 영아 마스크 금지, 온습도 보정 신호(`decisionSignals`)를 포함합니다.
-- 데이터 신뢰성 메타(`reliability`)를 함께 반환합니다.
-
-**신뢰성 배지 스펙**
-- `LIVE`: 라벨 `최근 1시간 기준 실측 데이터`
-- `STATION_FALLBACK`: 라벨 `인근 측정소 자동 보정` (인접 유효 측정소로 보정)
-- `DEGRADED`: 라벨 `주변 평균 대체 데이터` (실측 매칭 실패 시 대체값 사용)
-
-**에러 처리**
-- 내부 오류 시 `500`
-
-**외부 호출**
-- `GET ${NEXT_PUBLIC_DATA_API_URL}/api/air-quality?stationName=...`
-- `POST ${NEXT_PUBLIC_AI_API_URL}/api/advice`
-
----
-
-### 2) `POST /api/reverse-geocode`
-
-좌표를 행정동/구 단위로 변환하는 역지오코딩 엔드포인트.
-
-**Request Body**
-```json
-{
-  "lat": 37.5172,
-  "lng": 127.0473
-}
-```
-
-**Response**
-```json
-{
-  "address": "서울특별시 강남구 역삼1동",
-  "regionName": "역삼1동",
-  "stationCandidate": "강남구"
-}
-```
-
-**에러 처리**
-- `lat/lng` 누락 시 `400`
-- `KAKAO_REST_API_KEY` 누락 시 `500`
-- Kakao API 실패 시 `500`
-
-## 환경 변수
-
-- `NEXT_PUBLIC_DATA_API_URL`: AirKorea 데이터 API URL
-- `NEXT_PUBLIC_AI_API_URL`: AI 서버 API URL
-- `KAKAO_REST_API_KEY`: Kakao 지도 REST API Key
-- `NEXT_PUBLIC_KAKAO_JS_KEY`: Kakao JS SDK Key
-- `NEXT_PUBLIC_SITE_URL`: 배포 URL
-- `NEXT_PUBLIC_GA4_ID`: Google Analytics ID
-
-## 개발 실행
+### 7.1 웹(루트)
 
 ```bash
+npm install
 npm run dev
 ```
+
+기타 명령:
+
+- `npm run build`
+- `npm run lint`
+- `npm run test:unit`
+- `npm run test:e2e`
+- `npm run test:e2e:ui`
+
+### 7.2 미니앱
+
+```bash
+cd miniapps/ait-webview
+npm install
+npm run dev
+```
+
+기타 명령:
+
+- `npm run build`
+- `npm run lint`
+- `npm run deploy`
+
+## 8. 테스트/검증
+
+- 단위 테스트: 의사결정 로직, 측정소 후보 보정, 의류 추천 route, 미니앱 헬퍼 로직
+- E2E 테스트: 핵심 대시보드 흐름, 로딩/실패 복구, 프로필/위치 갱신, 공유 CTA, 근거/신뢰성 UI
+- CSV 계약 시나리오 검증: `tests/e2e/decision-csv.spec.ts`에서 `tests/fixtures/decision-data.csv` 순회
+
+신뢰성 스모크(수동):
+
+```bash
+node scripts/nationwide-reliability-smoke.mjs \
+  --base-url http://127.0.0.1:4012 \
+  --fixture scripts/fixtures/nationwide-stations.sample.json
+```
+
+산출물은 `output/nationwide-reliability/`에 생성됩니다.
+
+## 9. 운영 메모
+
+- `next-pwa`는 개발환경에서 비활성화, 프로덕션에서 Service Worker 생성
+- Sentry는 Next.js(`withSentryConfig`)와 미니앱(`@sentry/browser`) 모두 구성
+- `/api/*` 라우트는 CORS 헤더를 반환
+- `/api/log`는 MongoDB 연결이 필요
+
+## 10. 관련 문서
+
+- [API_GUIDE.md](./API_GUIDE.md)
+- [TEST_CASES.md](./TEST_CASES.md)
+- [miniapps/ait-webview/README.md](./miniapps/ait-webview/README.md)
