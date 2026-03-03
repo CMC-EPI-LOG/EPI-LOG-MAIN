@@ -34,17 +34,17 @@ export default function LocationHeader({ currentLocation, onLocationSelect }: Lo
 
   return (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center justify-center gap-2">
         <button
           type="button"
-          className="flex items-center gap-1 rounded-md px-1 py-0.5 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/70"
+          className="flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/70"
           onClick={() => setIsSearchOpen(true)}
           aria-label="위치 검색 열기"
           aria-haspopup="dialog"
           data-testid="location-trigger"
         >
           <MapPin size={20} className="text-black fill-black/10" />
-          <span className="text-xl font-black underline decoration-4 decoration-pastel-yellow underline-offset-4">
+          <span className="max-w-[120px] truncate text-xl font-black underline decoration-4 decoration-pastel-yellow underline-offset-4 sm:max-w-[180px] md:max-w-[220px]">
             {currentLocation}
           </span>
         </button>

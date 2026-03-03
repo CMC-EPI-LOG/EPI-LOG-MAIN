@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { getGradeBadgeColor, getGradeText } from "@/lib/colorUtils";
@@ -85,6 +85,7 @@ export default function HeroCard({
   errorMessage = "잠시 후 다시 시도해주세요",
   onRetry,
 }: HeroCardProps) {
+  const prefersReducedMotion = useReducedMotion();
   const outingStatus = useMemo(() => getOutingStatusByGrade(grade), [grade]);
   const showMaskRecommendation = useMemo(() => shouldShowMaskRecommendation(grade), [grade]);
   const maskRecommendationText = useMemo(
@@ -236,23 +237,40 @@ export default function HeroCard({
 
       {/* Character - Center, Large */}
       <motion.div
-        initial={{ scale: 0, rotate: -10 }}
-        animate={{ scale: 1, rotate: 0 }}
-        transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
+        initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9, rotate: -8, y: 14 }}
+        animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1, rotate: 0, y: 0 }}
+        transition={
+          prefersReducedMotion
+            ? { duration: 0.3, delay: 0.2 }
+            : { delay: 0.35, type: "spring", stiffness: 180, damping: 14 }
+        }
         className="mt-12 flex flex-1 items-center justify-center md:mt-8"
       >
-        <div className="relative h-44 w-44 md:h-52 md:w-52">
-          {/* Character with Glow */}
+        <motion.div
+          animate={
+            prefersReducedMotion
+              ? undefined
+              : {
+                  y: [-2, -10, -2, 4, -2],
+                  rotate: [0, -1.2, 0, 1.2, 0],
+                }
+          }
+          transition={
+            prefersReducedMotion
+              ? undefined
+              : {
+                  duration: 4.8,
+                  delay: 0.7,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }
+          }
+          className="relative h-44 w-44 md:h-52 md:w-52"
+        >
           <div className="relative h-44 w-44 character-glow md:h-52 md:w-52">
-            <Image
-              src={character}
-              alt="Air quality character"
-              fill
-              className="object-contain relative z-10"
-              priority
-            />
+            <Image src={character} alt="Air quality character" fill className="relative z-10 object-contain" priority />
           </div>
-        </div>
+        </motion.div>
       </motion.div>
 
       <motion.div
