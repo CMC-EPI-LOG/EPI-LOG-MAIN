@@ -712,8 +712,8 @@ export default function Home() {
       data-testid="home-main"
     >
       {/* Header */}
-      <header className="max-w-2xl mx-auto flex items-center justify-between mb-4 pb-3 border-b-2 border-black">
-        <div className="flex items-center gap-2 font-brand text-2xl font-black tracking-tight">
+      <header className="max-w-2xl mx-auto mb-4 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 pb-3 border-b-2 border-black">
+        <div className="min-w-0 justify-self-start flex items-center gap-2 font-brand text-2xl font-black tracking-tight">
           <img
             src="/icon.png"
             alt="아이숨 로고"
@@ -731,14 +731,16 @@ export default function Home() {
           onLocationSelect={handleLocationSelect}
         />
         
-        <button
-          onClick={() => openSettingsModal("age")}
-          className="p-2 rounded-full hover:bg-black/10 transition-all bento-card-sm bg-white"
-          aria-label={isOnboarded ? "설정 변경" : "맞춤 설정 시작"}
-          data-testid="settings-button"
-        >
-          <Settings size={24} />
-        </button>
+        <div className="justify-self-end">
+          <button
+            onClick={() => openSettingsModal("age")}
+            className="p-2 rounded-full hover:bg-black/10 transition-all bento-card-sm bg-white"
+            aria-label={isOnboarded ? "설정 변경" : "맞춤 설정 시작"}
+            data-testid="settings-button"
+          >
+            <Settings size={24} />
+          </button>
+        </div>
       </header>
 
       <AiNotice />
