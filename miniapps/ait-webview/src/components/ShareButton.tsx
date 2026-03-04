@@ -17,6 +17,7 @@ interface ShareButtonProps {
   action?: string; // e.g. "실내 놀이", "마스크 필수"
   summary?: string;
   reason?: string;
+  isLoading?: boolean;
 }
 
 function toSingleLine(value?: string) {
@@ -39,9 +40,31 @@ function createShareId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export default function ShareButton({ nickname, region, action, summary, reason }: ShareButtonProps) {
+export default function ShareButton({
+  nickname,
+  region,
+  action,
+  summary,
+  reason,
+  isLoading = false,
+}: ShareButtonProps) {
   const { logEvent } = useLogger();
   const isTossPlatform = process.env.NEXT_PUBLIC_PLATFORM === 'TOSS';
+
+  if (isLoading) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="flex w-full items-center justify-center gap-2 rounded-[20px] border-2 border-black bg-[#FEE500]/80 px-5 py-3 text-base font-black text-[#1A1A1A]/70 shadow-bento-sm"
+        aria-label="결과 공유 준비 중"
+        data-testid="share-button-loading"
+      >
+        <div className="h-5 w-5 rounded-full skeleton-block" />
+        <span>공유 문구 준비 중...</span>
+      </button>
+    );
+  }
 
   const handleShare = async () => {
     const share_id = createShareId();

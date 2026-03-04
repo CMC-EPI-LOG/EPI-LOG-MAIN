@@ -1,14 +1,24 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { getGradeBadgeColor, getGradeText } from "@/lib/colorUtils";
 
 interface HeroCardProps {
   character: string;
   decisionText: string;
+  reasonText?: string;
+  maskRecommendation?: string;
   grade: string;
-  profileBadge: string;
+  ageSummary: string;
+  conditionSummary?: string;
+  onOpenAgeModal?: () => void;
+  isAgeButtonDisabled?: boolean;
+  onOpenConditionModal?: () => void;
+  isConditionButtonDisabled?: boolean;
+  onOpenClothingModal?: () => void;
+  isClothingButtonDisabled?: boolean;
+  clothingButtonLabel?: string;
   isLoading?: boolean;
   loadingCaption?: string;
   isError?: boolean;
@@ -35,11 +45,44 @@ const PROFILE_LOADING_MESSAGES = [
   "개인화 규칙을 반영해 추천 문구를 업데이트하고 있어요.",
 ];
 
+function getOutingStatusByGrade(grade: string): { label: string; colorClass: string } {
+  const normalized = (grade || "").toUpperCase();
+  if (normalized === "GOOD") {
+    return { label: "외출 O", colorClass: "text-emerald-600" };
+  }
+  if (normalized === "NORMAL") {
+    return { label: "외출 주의", colorClass: "text-amber-500" };
+  }
+  return { label: "외출 비권장", colorClass: "text-red-600" };
+}
+
+function shouldShowMaskRecommendation(grade: string): boolean {
+  const normalized = (grade || "").toUpperCase();
+  return normalized === "BAD" || normalized === "VERY_BAD";
+}
+
+function getMaskRecommendationText(maskRecommendation?: string): string {
+  const normalized = maskRecommendation?.trim();
+  if (!normalized || normalized === "확인 필요") return "KF80 마스크 착용 권장";
+  if (normalized === "KF80 권장") return "KF80 마스크 착용 권장";
+  return normalized;
+}
+
 export default function HeroCard({
   character,
   decisionText,
+  reasonText,
+  maskRecommendation,
   grade,
-  profileBadge,
+  ageSummary,
+  conditionSummary,
+  onOpenAgeModal,
+  isAgeButtonDisabled = false,
+  onOpenConditionModal,
+  isConditionButtonDisabled = false,
+  onOpenClothingModal,
+  isClothingButtonDisabled = false,
+  clothingButtonLabel,
   isLoading = false,
   loadingCaption,
   isError = false,
@@ -47,6 +90,14 @@ export default function HeroCard({
   errorMessage = "잠시 후 다시 시도해주세요",
   onRetry,
 }: HeroCardProps) {
+  const prefersReducedMotion = useReducedMotion();
+  const outingStatus = useMemo(() => getOutingStatusByGrade(grade), [grade]);
+  const showMaskRecommendation = useMemo(() => shouldShowMaskRecommendation(grade), [grade]);
+  const maskRecommendationText = useMemo(
+    () => getMaskRecommendationText(maskRecommendation),
+    [maskRecommendation],
+  );
+  const isDefaultKf80MaskRecommendation = maskRecommendationText === "KF80 마스크 착용 권장";
   const loadingMessages = useMemo(() => {
     if (loadingCaption?.includes("연령/질환")) return PROFILE_LOADING_MESSAGES;
     if (loadingCaption?.includes("기준으로 데이터 업데이트")) return LOCATION_LOADING_MESSAGES;
@@ -67,13 +118,12 @@ export default function HeroCard({
     };
   }, [isLoading, loadingMessages]);
 
-  // Error state
   if (isError) {
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="col-span-2 h-[42vh] min-h-[344px] bento-card flex flex-col items-center justify-center p-7 text-center"
+        className="col-span-2 bento-card flex flex-col items-center justify-center px-7 py-10 text-center"
         data-testid="hero-error"
       >
         <div className="text-8xl mb-4">😎</div>
@@ -92,25 +142,27 @@ export default function HeroCard({
     );
   }
 
-  // Loading state
   if (isLoading) {
     return (
       <div
-        className="col-span-2 h-[42vh] min-h-[344px] bento-card relative overflow-hidden p-5 md:p-6"
+        className="col-span-2 bento-card relative overflow-hidden p-5 md:p-6"
         data-testid="hero-loading"
       >
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-pulse" />
-        <div className="relative flex h-full flex-col justify-between">
+        <div className="absolute inset-0 skeleton-block opacity-45" />
+        <div className="relative flex flex-col gap-4">
           <div className="flex items-start justify-between">
-            <div className="h-8 w-28 rounded-lg border-2 border-black bg-gray-100 animate-pulse" />
-            <div className="h-10 w-16 rounded-xl border-2 border-black bg-gray-100 animate-pulse" />
+            <div className="h-8 w-28 rounded-lg border-2 border-black skeleton-block" />
+            <div className="h-10 w-16 rounded-xl border-2 border-black skeleton-block" />
           </div>
 
-          <div className="flex flex-1 items-center justify-center">
-            <div className="h-52 w-52 rounded-full border border-gray-300 bg-gray-100 animate-pulse md:h-56 md:w-56" />
+          <div className="flex items-center justify-center py-1">
+            <div className="relative h-52 w-52 md:h-56 md:w-56">
+              <div className="absolute inset-0 rounded-full border border-gray-300 skeleton-block" />
+              <div className="absolute inset-6 rounded-full border border-gray-200 bg-gray-100/70" />
+            </div>
           </div>
 
-          <div className="mx-auto h-9 w-48 rounded-md bg-gray-200 animate-pulse md:h-10 md:w-56" />
+          <div className="mx-auto h-9 w-48 rounded-md skeleton-block md:h-10 md:w-56" />
           <p
             className="mt-2 text-center text-xs font-semibold text-gray-700 md:text-sm"
             data-testid="hero-loading-message"
@@ -135,19 +187,66 @@ export default function HeroCard({
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.5 }}
-      className="col-span-2 h-[42vh] min-h-[344px] bento-card relative flex flex-col items-center justify-between p-5 md:p-6"
+      className="col-span-2 bento-card relative flex h-fit flex-col items-center px-5 pb-5 pt-20 md:px-6 md:pb-6 md:pt-24"
     >
-      {/* Profile Badge - Top Left, INSIDE card (diary tab style) */}
-      <motion.div
-        initial={{ x: -50, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="absolute left-5 top-5 z-10 rounded-lg border-2 border-black bg-white px-3 py-1.5 text-xs font-bold shadow-bento-sm md:left-6 md:top-6"
-      >
-        {profileBadge}
-      </motion.div>
+      <div className="absolute left-5 top-5 z-30 md:left-6 md:top-6">
+        <div className="inline-grid max-w-[min(290px,calc(100vw-88px))] grid-cols-1 gap-2">
+          {onOpenAgeModal && (
+            <motion.button
+              type="button"
+              initial={{ x: -50, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              onClick={onOpenAgeModal}
+              disabled={isAgeButtonDisabled}
+              className={`inline-flex w-full items-center justify-start gap-1.5 rounded-xl border-2 border-black bg-white/95 px-3 py-1.5 text-xs font-black shadow-bento-sm transition hover:bg-black hover:text-white ${
+                isAgeButtonDisabled ? "cursor-not-allowed opacity-60" : ""
+              }`}
+              data-testid="hero-age-open"
+            >
+              <span aria-hidden="true">👶</span>
+              <span className="min-w-0 text-left">{ageSummary}</span>
+            </motion.button>
+          )}
 
-      {/* Grade Badge - Top Right, INSIDE card (stamp/price tag style) */}
+          {onOpenConditionModal && (
+            <motion.button
+              type="button"
+              initial={{ x: -30, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.25 }}
+              onClick={onOpenConditionModal}
+              disabled={isConditionButtonDisabled}
+              className={`inline-flex w-full items-center justify-start gap-1.5 rounded-xl border-2 border-black bg-white/95 px-3 py-1.5 text-xs font-black shadow-bento-sm transition hover:bg-black hover:text-white ${
+                isConditionButtonDisabled ? "cursor-not-allowed opacity-60" : ""
+              }`}
+              data-testid="hero-condition-open"
+            >
+              <span aria-hidden="true">🩺</span>
+              <span className="min-w-0 text-left">{conditionSummary || "질환: 해당 없음"}</span>
+            </motion.button>
+          )}
+
+          {onOpenClothingModal && (
+            <motion.button
+              type="button"
+              initial={{ x: -20, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              onClick={onOpenClothingModal}
+              disabled={isClothingButtonDisabled}
+              className={`inline-flex w-full items-center justify-start gap-1.5 rounded-xl border-2 border-black bg-white/95 px-3 py-1.5 text-xs font-black shadow-bento-sm transition hover:bg-black hover:text-white ${
+                isClothingButtonDisabled ? "cursor-not-allowed opacity-70" : ""
+              }`}
+              data-testid="hero-clothing-open"
+            >
+              <span aria-hidden="true">👕</span>
+              <span className="min-w-0 whitespace-pre-line text-left">{clothingButtonLabel || "옷차림 보기"}</span>
+            </motion.button>
+          )}
+        </div>
+      </div>
+
       <motion.div
         initial={{ x: 50, opacity: 0, rotate: 0 }}
         animate={{ x: 0, opacity: 1, rotate: 3 }}
@@ -157,16 +256,38 @@ export default function HeroCard({
         {getGradeText(grade)}
       </motion.div>
 
-      {/* Character - Center, Large */}
       <motion.div
-        initial={{ scale: 0, rotate: -10 }}
-        animate={{ scale: 1, rotate: 0 }}
-        transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
-        className="flex-1 flex items-center justify-center"
+        initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9, rotate: -8, y: 14 }}
+        animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1, rotate: 0, y: 0 }}
+        transition={
+          prefersReducedMotion
+            ? { duration: 0.3, delay: 0.2 }
+            : { delay: 0.35, type: "spring", stiffness: 180, damping: 14 }
+        }
+        className="flex items-center justify-center"
       >
-        <div className="relative h-56 w-56 md:h-60 md:w-60">
-          {/* Character with Glow */}
-          <div className="relative h-56 w-56 character-glow md:h-60 md:w-60">
+        <motion.div
+          animate={
+            prefersReducedMotion
+              ? undefined
+              : {
+                  y: [-2, -10, -2, 4, -2],
+                  rotate: [0, -1.2, 0, 1.2, 0],
+                }
+          }
+          transition={
+            prefersReducedMotion
+              ? undefined
+              : {
+                  duration: 4.8,
+                  delay: 0.7,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }
+          }
+          className="relative h-44 w-44 md:h-52 md:w-52"
+        >
+          <div className="relative h-44 w-44 character-glow md:h-52 md:w-52">
             <img
               src={character}
               alt="Air quality character"
@@ -175,18 +296,44 @@ export default function HeroCard({
               decoding="async"
             />
           </div>
-        </div>
+        </motion.div>
       </motion.div>
 
-      {/* Decision Text - Bottom, Extra Bold */}
-      <motion.h1
+      <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.6 }}
-        className="text-3xl md:text-4xl font-black text-center text-extra-bold leading-tight"
+        className="mt-0.5 flex w-full flex-col items-center gap-2 text-center"
       >
-        {decisionText}
-      </motion.h1>
+        <h1
+          className={`text-3xl font-black leading-tight md:text-4xl ${outingStatus.colorClass}`}
+          data-testid="hero-outing-status"
+        >
+          {outingStatus.label}
+        </h1>
+        {showMaskRecommendation && (
+          <p
+            className={`inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-sm font-black text-red-700 md:text-base ${
+              isDefaultKf80MaskRecommendation ? "" : "border-2 border-black"
+            }`}
+            data-testid="hero-mask-recommendation"
+          >
+            <span aria-hidden="true">😷</span>
+            <span>{maskRecommendationText}</span>
+          </p>
+        )}
+        <p className="text-xl font-black leading-tight text-gray-900 md:text-2xl" data-testid="hero-main-text">
+          {decisionText}
+        </p>
+        {reasonText && (
+          <p
+            className="max-w-[92%] whitespace-pre-line text-sm font-semibold leading-snug text-gray-700 md:text-base"
+            data-testid="hero-csv-reason"
+          >
+            {reasonText}
+          </p>
+        )}
+      </motion.div>
     </motion.div>
   );
 }
