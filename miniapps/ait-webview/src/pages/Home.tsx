@@ -749,7 +749,7 @@ export default function Home() {
       ? `${currentTemperature}`
       : currentTemperature.toFixed(1).replace(/\.0$/, "");
 
-    return `옷차림\n(현재날씨 ${normalized}도)`;
+    return `옷차림\n(현재날씨 ${normalized} ℃)`;
   }, [clothingData?.temperature, data?.airQuality?.temp]);
 
   useEffect(() => {
