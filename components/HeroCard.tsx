@@ -98,6 +98,7 @@ export default function HeroCard({
     () => getMaskRecommendationText(maskRecommendation),
     [maskRecommendation],
   );
+  const isDefaultKf80MaskRecommendation = maskRecommendationText === "KF80 마스크 착용 권장";
   const loadingMessages = useMemo(() => {
     if (loadingCaption?.includes("연령/질환")) return PROFILE_LOADING_MESSAGES;
     if (loadingCaption?.includes("기준으로 데이터 업데이트")) return LOCATION_LOADING_MESSAGES;
@@ -191,7 +192,7 @@ export default function HeroCard({
       transition={{ duration: 0.5 }}
       className="col-span-2 bento-card relative flex h-fit flex-col items-center px-5 pb-5 pt-20 md:px-6 md:pb-6 md:pt-24"
     >
-      <div className="absolute left-5 top-5 z-10 md:left-6 md:top-6">
+      <div className="absolute left-5 top-5 z-30 md:left-6 md:top-6">
         <div className="inline-grid max-w-[min(290px,calc(100vw-88px))] grid-cols-1 gap-2">
           {onOpenAgeModal && (
             <motion.button
@@ -243,7 +244,7 @@ export default function HeroCard({
               data-testid="hero-clothing-open"
             >
               <span aria-hidden="true">👕</span>
-              <span className="min-w-0 text-left">{clothingButtonLabel || "옷차림 보기"}</span>
+              <span className="min-w-0 whitespace-pre-line text-left">{clothingButtonLabel || "옷차림 보기"}</span>
             </motion.button>
           )}
         </div>
@@ -311,7 +312,9 @@ export default function HeroCard({
         </h1>
         {showMaskRecommendation && (
           <p
-            className="inline-flex items-center gap-1.5 rounded-full border-2 border-black bg-red-50 px-3 py-1 text-sm font-black text-red-700 md:text-base"
+            className={`inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-sm font-black text-red-700 md:text-base ${
+              isDefaultKf80MaskRecommendation ? "" : "border-2 border-black"
+            }`}
             data-testid="hero-mask-recommendation"
           >
             <span aria-hidden="true">😷</span>

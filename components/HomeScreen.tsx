@@ -733,14 +733,14 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
     const currentTemperature = clothingData?.temperature ?? data?.airQuality?.temp;
 
     if (typeof currentTemperature !== "number" || Number.isNaN(currentTemperature)) {
-      return "옷차림(현재날씨 확인중)";
+      return "옷차림\n(현재날씨 확인중)";
     }
 
     const normalized = Number.isInteger(currentTemperature)
       ? `${currentTemperature}`
       : currentTemperature.toFixed(1).replace(/\.0$/, "");
 
-    return `옷차림(현재날씨 ${normalized}도)`;
+    return `옷차림\n(현재날씨 ${normalized}도)`;
   }, [clothingData?.temperature, data?.airQuality?.temp, enableClothingModalPreview]);
 
   useEffect(() => {

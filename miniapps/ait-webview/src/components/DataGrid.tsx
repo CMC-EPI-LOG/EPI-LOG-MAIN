@@ -24,6 +24,7 @@ interface DataGridProps {
   onRefreshData?: () => void;
   isRefreshing?: boolean;
   delay?: number;
+  isLoading?: boolean;
 }
 
 function getPM25Status(value: number): { grade: 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD'; label: string } {
@@ -159,6 +160,7 @@ export default function DataGrid({
   onRefreshData,
   isRefreshing = false,
   delay = 0,
+  isLoading = false,
 }: DataGridProps) {
   const [isOpen, setIsOpen] = useState(false);
   const isDataDelayed = freshnessStatus === 'DELAYED' || freshnessStatus === 'STALE';
@@ -166,6 +168,43 @@ export default function DataGrid({
     freshnessStatus === 'STALE'
       ? 'border-red-200 bg-red-50 text-red-700'
       : 'border-amber-200 bg-amber-50 text-amber-700';
+
+  if (isLoading) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay, duration: 0.4 }}
+        className="col-span-2 bento-card overflow-hidden"
+        data-testid="datagrid-loading"
+      >
+        <div className="flex w-full items-center justify-between p-5 md:p-6">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">📊</span>
+            <h3 className="text-lg font-black md:text-xl">
+              <span className="highlighter-yellow">실시간 수치 보기</span>
+            </h3>
+          </div>
+          <div className="h-5 w-5 rounded-full skeleton-block" />
+        </div>
+        <div className="space-y-6 border-t border-gray-100 px-5 pb-5 pt-4 md:px-6 md:pb-6">
+          <div className="h-4 w-44 rounded-full skeleton-block" />
+          <section className="space-y-3">
+            <p className="section-label">[날씨]</p>
+            <div className="h-16 rounded-xl border-2 border-black skeleton-block" />
+          </section>
+          <section className="space-y-3">
+            <p className="section-label">[대기질]</p>
+            <div className="space-y-3">
+              {[0, 1, 2, 3].map((idx) => (
+                <div key={idx} className="h-20 rounded-xl border border-gray-200 skeleton-block" />
+              ))}
+            </div>
+          </section>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
