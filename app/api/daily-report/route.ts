@@ -106,6 +106,20 @@ interface AiGuideView {
   no2_value?: number;
 }
 
+function formatTimingLog(timing: Record<string, number>): string {
+  return Object.entries(timing)
+    .filter(([, value]) => Number.isFinite(value))
+    .map(([key, value]) => `${key}=${value}ms`)
+    .join(' ');
+}
+
+function buildServerTimingHeader(timing: Record<string, number>): string {
+  return Object.entries(timing)
+    .filter(([, value]) => Number.isFinite(value))
+    .map(([key, value]) => `${key};dur=${value}`)
+    .join(', ');
+}
+
 
 async function parseRequestBody(request: Request): Promise<Record<string, unknown>> {
   const raw = await request.text();
@@ -383,8 +397,13 @@ async function fetchAiData(stationName: string, aiProfile: { ageGroup: string; c
 }
 
 export async function POST(request: Request) {
+  const requestStartedAt = Date.now();
+  const timing: Record<string, number> = {};
+
   try {
+    const requestParseStartedAt = Date.now();
     const requestBody = await parseRequestBody(request);
+    timing.requestParseMs = Date.now() - requestParseStartedAt;
     const stationName = typeof requestBody.stationName === 'string' ? requestBody.stationName : undefined;
     const profile =
       typeof requestBody.profile === 'object' && requestBody.profile !== null
@@ -405,11 +424,18 @@ export async function POST(request: Request) {
 
     console.log(`[BFF] Requested station: ${requestedStation}`);
     console.log('[BFF] AI Profile Payload:', aiProfile);
+    console.log(`[BFF] API targets: data=${DATA_API_URL} ai=${AI_API_URL}`);
 
     // P0: 병렬 호출로 지연 완화 (air/ai를 동시에 시작)
+    const airFetchStartedAt = Date.now();
+    const aiPrimaryStartedAt = Date.now();
     const [airSettled, aiSettled] = await Promise.allSettled([
-      fetchAirDataWithStationFallback(requestedStation),
-      fetchAiData(requestedStation, aiProfile),
+      fetchAirDataWithStationFallback(requestedStation).finally(() => {
+        timing.airFetchMs = Date.now() - airFetchStartedAt;
+      }),
+      fetchAiData(requestedStation, aiProfile).finally(() => {
+        timing.aiPrimaryMs = Date.now() - aiPrimaryStartedAt;
+      }),
     ]);
 
     const airFetch: AirFetchResult =
@@ -457,17 +483,21 @@ export async function POST(request: Request) {
 
     // 측정소 보정이 일어났다면 AI도 동일 측정소 기준으로 맞춰 일관성 확보
     if (airFetch.resolvedStation !== requestedStation) {
+      const aiRetryResolvedStartedAt = Date.now();
       try {
         const retriedAiData = await fetchAiData(airFetch.resolvedStation, aiProfile);
         aiData = retriedAiData;
         aiOk = true;
       } catch (error) {
         console.error('[BFF] AI API Error(retry with resolved station):', error);
+      } finally {
+        timing.aiRetryResolvedMs = Date.now() - aiRetryResolvedStartedAt;
       }
     }
 
     // 보정이 없더라도 AI 값이 기본 템플릿 시그니처면 동일 측정소로 1회 재시도
     if (aiData && isUnknownMetricSignature(aiData)) {
+      const aiRetrySignatureStartedAt = Date.now();
       try {
         const retriedAiData = await fetchAiData(airFetch.resolvedStation, aiProfile);
         if (!isUnknownMetricSignature(retriedAiData)) {
@@ -476,6 +506,8 @@ export async function POST(request: Request) {
         aiOk = true;
       } catch (error) {
         console.error('[BFF] AI API Error(retry with unknown signature):', error);
+      } finally {
+        timing.aiRetrySignatureMs = Date.now() - aiRetrySignatureStartedAt;
       }
     }
 
@@ -494,12 +526,21 @@ export async function POST(request: Request) {
     if (airData.pm10_value == null && aiData.pm10_value != null) airData.pm10_value = aiData.pm10_value;
     if (airData.no2_value == null && aiData.no2_value != null) airData.no2_value = aiData.no2_value;
 
+    const deriveStartedAt = Date.now();
     const derived = deriveDecisionSignals(airData, aiData, finalProfile);
     const reliability = buildReliabilityMeta(requestedStation, airFetch, aiOk);
+    timing.deriveMs = Date.now() - deriveStartedAt;
 
     Sentry.setTag('station.resolved', reliability.resolvedStation);
     Sentry.setTag('reliability.status', reliability.status);
     Sentry.setTag('ai.status', reliability.aiStatus);
+    timing.totalMs = Date.now() - requestStartedAt;
+    const timingLog = formatTimingLog(timing);
+    const serverTiming = buildServerTimingHeader(timing);
+    console.log(
+      `[BFF][timing] route=/api/daily-report requested=${requestedStation} resolved=${reliability.resolvedStation} `
+      + `reliability=${reliability.status} aiOk=${aiOk} ${timingLog}`,
+    );
 
     return NextResponse.json({
       airQuality: derived.airData,
@@ -507,8 +548,18 @@ export async function POST(request: Request) {
       decisionSignals: derived.decisionSignals,
       reliability,
       timestamp: new Date().toISOString(),
-    }, { headers: corsHeaders() });
+    }, {
+      headers: {
+        ...corsHeaders(),
+        'x-bff-timing': timingLog,
+        'server-timing': serverTiming,
+      },
+    });
   } catch (error) {
+    timing.totalMs = Date.now() - requestStartedAt;
+    const timingLog = formatTimingLog(timing);
+    const serverTiming = buildServerTimingHeader(timing);
+    console.error(`[BFF][timing] route=/api/daily-report stage=error ${timingLog}`);
     console.error('[BFF] Internal Server Error:', error);
     Sentry.withScope((scope) => {
       scope.setTag('api.route', '/api/daily-report');
@@ -517,7 +568,14 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(
       { error: 'Internal Server Error' },
-      { status: 500, headers: corsHeaders() },
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders(),
+          'x-bff-timing': timingLog,
+          'server-timing': serverTiming,
+        },
+      },
     );
   }
 }
