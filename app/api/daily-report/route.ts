@@ -29,17 +29,18 @@ function parseNonNegativeIntEnv(value: string | undefined, fallback: number): nu
 
 const AI_BFF_CACHE_TTL_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACHE_TTL_MS, 5 * 60 * 1000);
 const AI_BFF_CACHE_MAX_ENTRIES = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACHE_MAX_ENTRIES, 200);
-const AI_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_TIMEOUT_MS, 3200);
+// Increase primary timeout to absorb frequent AI cold misses before fallbacking.
+const AI_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_TIMEOUT_MS, 6500);
 const AI_PRIMARY_RETRY_COUNT = parseNonNegativeIntEnv(process.env.DAILY_REPORT_AI_PRIMARY_RETRY_COUNT, 1);
 const AI_PRIMARY_RETRY_TIMEOUT_MS = parsePositiveIntEnv(
   process.env.DAILY_REPORT_AI_PRIMARY_RETRY_TIMEOUT_MS,
-  AI_PRIMARY_TIMEOUT_MS,
+  1200,
 );
 const AI_PRIMARY_RETRY_BACKOFF_MS = parseNonNegativeIntEnv(
   process.env.DAILY_REPORT_AI_PRIMARY_RETRY_BACKOFF_MS,
-  200,
+  100,
 );
-const AI_RETRY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_RETRY_TIMEOUT_MS, 1400);
+const AI_RETRY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_RETRY_TIMEOUT_MS, 900);
 const AIR_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_TIMEOUT_MS, 1200);
 const AIR_FETCH_TOTAL_BUDGET_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_TOTAL_BUDGET_MS, 2400);
 const AIR_FETCH_MAX_CANDIDATES = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_MAX_CANDIDATES, 6);
