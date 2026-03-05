@@ -34,6 +34,11 @@ const REPORT_TIMEOUT_MS = 25000;
 const FRESHNESS_DELAYED_MINUTES = 60;
 const FRESHNESS_STALE_MINUTES = 90;
 const AIR_LATEST_POLL_INTERVAL_MS = 60_000;
+const DEFAULT_LOCATION_FALLBACK = {
+  lat: 37.5172,
+  lng: 127.0473,
+  stationName: "강남구",
+} as const;
 const TEST_LOCATION_EVENT = "aisoom:test-location-select";
 const LEGACY_TEST_LOCATION_EVENT = "epilog:test-location-select";
 
@@ -179,6 +184,39 @@ export default function Home() {
   const loadingStartedAtRef = useRef<number | null>(null);
   const lastFallbackExposeKeyRef = useRef<string | null>(null);
   const airLatestInFlightRef = useRef(false);
+
+  const buildLocationFallback = useCallback(
+    (coords?: { lat?: number; lng?: number }) => {
+      const stationName =
+        location.stationName?.trim() || DEFAULT_LOCATION_FALLBACK.stationName;
+
+      return {
+        lat:
+          typeof coords?.lat === "number"
+            ? coords.lat
+            : Number.isFinite(location.lat)
+              ? location.lat
+              : DEFAULT_LOCATION_FALLBACK.lat,
+        lng:
+          typeof coords?.lng === "number"
+            ? coords.lng
+            : Number.isFinite(location.lng)
+              ? location.lng
+              : DEFAULT_LOCATION_FALLBACK.lng,
+        stationName,
+      };
+    },
+    [location.lat, location.lng, location.stationName],
+  );
+
+  const getFallbackRegionLabel = useCallback(
+    (fallbackLocation: { stationName: string }) => {
+      const fromDisplay = displayRegion?.trim();
+      if (fromDisplay) return fromDisplay;
+      return fallbackLocation.stationName || DEFAULT_LOCATION_FALLBACK.stationName;
+    },
+    [displayRegion],
+  );
 
   const fetchClothingRecommendation = useCallback(async (temperature?: number, humidity?: number) => {
     const requestSeq = ++clothingRequestSeqRef.current;
@@ -466,17 +504,14 @@ export default function Home() {
       fetchData(newLocation, profile, "location");
     } catch (error) {
       console.error("Reverse Geocode Error:", error);
-      toast.error("위치 정보를 불러올 수 없어 '서울 중구' 기준으로 보여드려요 🏢");
-      const fallbackLocation = {
-        lat: 37.5635,
-        lng: 126.9975,
-        stationName: "중구",
-      };
+      const fallbackLocation = buildLocationFallback({ lat, lng });
+      const fallbackRegionLabel = getFallbackRegionLabel(fallbackLocation);
+      toast.error(`위치 정보를 불러올 수 없어 '${fallbackRegionLabel}' 기준으로 보여드려요 🏢`);
       setLocation(fallbackLocation);
-      setDisplayRegion("서울 중구");
+      setDisplayRegion(fallbackRegionLabel);
       fetchData(fallbackLocation, profile, "location");
     }
-  }, [fetchData, profile, setLocation]);
+  }, [buildLocationFallback, fetchData, getFallbackRegionLabel, profile, setLocation]);
 
   const requestCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
