@@ -21,10 +21,11 @@ vi.mock('@sentry/nextjs', () => ({
 
 import { POST } from '../../app/api/daily-report/route';
 
-function createAirQualityResponse(stationName: string) {
+function createAirQualityResponse(stationName: string, overrides?: Record<string, unknown>) {
   return new Response(
     JSON.stringify({
       stationName,
+      sidoName: '서울',
       pm25_grade: '보통',
       pm10_grade: '보통',
       pm25_value: 20,
@@ -33,6 +34,7 @@ function createAirQualityResponse(stationName: string) {
       no2_value: 0.02,
       temp: 22,
       humidity: 45,
+      ...(overrides ?? {}),
     }),
     {
       status: 200,
@@ -160,5 +162,93 @@ describe('/api/daily-report ai retry', () => {
     expect(aiCallCount).toBe(1);
     expect(payload.aiGuide.summary).toContain('지금은 정보를 가져올 수 없어요');
     expect(payload.aiGuide.detail).toContain('AI 선생님이 잠시 쉬고 있어요');
+  });
+
+  it('AI 403 + 측정소 보정 케이스에서도 추가 AI 재호출 없이 폴백한다', async () => {
+    let aiCallCount = 0;
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url.includes('/api/air-quality')) {
+        return createAirQualityResponse('중구');
+      }
+
+      if (url.includes('/api/advice')) {
+        aiCallCount += 1;
+        return new Response(JSON.stringify({ error: 'forbidden' }), {
+          status: 403,
+          statusText: 'Forbidden',
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const request = new Request('http://localhost/api/daily-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stationName: '서울 중구',
+        profile: { ageGroup: 'elementary_low', condition: 'none' },
+      }),
+    });
+
+    const response = await POST(request);
+    const payload = (await response.json()) as {
+      aiGuide: {
+        summary?: string;
+        detail?: string;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(aiCallCount).toBe(1);
+    expect(payload.aiGuide.summary).toContain('지금은 정보를 가져올 수 없어요');
+    expect(payload.aiGuide.detail).toContain('AI 선생님이 잠시 쉬고 있어요');
+  });
+
+  it('측정소 보정 시에도 AI/대기 측정값이 일치하면 재호출을 생략한다', async () => {
+    let aiCallCount = 0;
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url.includes('/api/air-quality')) {
+        return createAirQualityResponse('중구');
+      }
+
+      if (url.includes('/api/advice')) {
+        aiCallCount += 1;
+        return createAdviceResponse('종합 판단', '일치 데이터');
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const request = new Request('http://localhost/api/daily-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stationName: '서울 중구',
+        profile: { ageGroup: 'elementary_low', condition: 'none' },
+      }),
+    });
+
+    const response = await POST(request);
+    const payload = (await response.json()) as {
+      aiGuide: {
+        summary?: string;
+        detail?: string;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(aiCallCount).toBe(1);
+    expect(payload.aiGuide.summary).toBe('종합 판단');
+    expect(payload.aiGuide.detail).toContain('일치 데이터');
   });
 });
