@@ -124,6 +124,16 @@ interface AirFetchResult {
   unknownSignatureCandidates: string[];
 }
 
+type NumericMetricKey = 'pm25_value' | 'pm10_value' | 'o3_value' | 'no2_value';
+
+const NUMERIC_METRIC_KEYS: NumericMetricKey[] = ['pm25_value', 'pm10_value', 'o3_value', 'no2_value'];
+const AI_METRIC_MISMATCH_TOLERANCE: Record<NumericMetricKey, number> = {
+  pm25_value: 1,
+  pm10_value: 1,
+  o3_value: 0.001,
+  no2_value: 0.001,
+};
+
 type AirCacheSource = 'api' | 'memory' | 'inflight' | 'stale';
 
 interface CachedAirFetchEntry {
@@ -414,6 +424,29 @@ function isUnknownMetricSignature(
   );
 }
 
+function toFiniteMetric(value: unknown): number | null {
+  if (typeof value !== 'number') return null;
+  if (!Number.isFinite(value)) return null;
+  return value;
+}
+
+function hasAiMetricMismatch(aiData: AiGuideView | null, airData: AirQualityRaw | null): boolean {
+  if (!aiData || !airData) return false;
+
+  for (const metricKey of NUMERIC_METRIC_KEYS) {
+    const aiValue = toFiniteMetric(aiData[metricKey]);
+    const airValue = toFiniteMetric(airData[metricKey]);
+    if (aiValue == null || airValue == null) continue;
+
+    const tolerance = AI_METRIC_MISMATCH_TOLERANCE[metricKey];
+    if (Math.abs(aiValue - airValue) > tolerance) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function fetchAirDataWithStationFallback(stationName: string): Promise<AirFetchResult> {
   const generatedCandidates = buildStationCandidates(stationName);
   const candidates = generatedCandidates.slice(0, AIR_FETCH_MAX_CANDIDATES);
@@ -694,11 +727,26 @@ function isAiRetryableError(error: unknown): boolean {
   if (message.includes('fetch failed')) return true;
   if (message.includes('network')) return true;
 
+  const statusCode = getAiStatusCodeFromError(error);
+  if (statusCode == null) return false;
+  return statusCode === 429 || statusCode >= 500;
+}
+
+function getAiStatusCodeFromError(error: unknown): number | null {
+  if (!(error instanceof Error)) return null;
+
   const statusMatch = error.message.match(/AI API Failed:\s*(\d{3})/i);
-  if (!statusMatch) return false;
+  if (!statusMatch) return null;
 
   const statusCode = Number(statusMatch[1]);
-  return statusCode === 429 || statusCode >= 500;
+  if (!Number.isFinite(statusCode)) return null;
+  return statusCode;
+}
+
+function isAiNonRetryableClientError(error: unknown): boolean {
+  const statusCode = getAiStatusCodeFromError(error);
+  if (statusCode == null) return false;
+  return statusCode >= 400 && statusCode < 500 && statusCode !== 429;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -890,6 +938,8 @@ export async function POST(request: Request) {
 
     let aiData: AiGuideView | null = aiSettled.status === 'fulfilled' ? aiSettled.value.data : null;
     let aiOk = aiSettled.status === 'fulfilled';
+    const aiPrimaryError = aiSettled.status === 'rejected' ? aiSettled.reason : null;
+    const aiPrimaryNonRetryableClientError = isAiNonRetryableClientError(aiPrimaryError);
     if (aiSettled.status !== 'fulfilled') {
       console.error('[BFF] AI API Error(primary):', aiSettled.reason);
       Sentry.withScope((scope) => {
@@ -903,8 +953,14 @@ export async function POST(request: Request) {
       });
     }
 
-    // 측정소 보정이 일어났다면 AI도 동일 측정소 기준으로 맞춰 일관성 확보
-    if (airFetch.resolvedStation !== requestedStation) {
+    const hasMetricMismatch = hasAiMetricMismatch(aiData, airFetch.data);
+    const shouldRetryResolvedStation =
+      airFetch.resolvedStation !== requestedStation
+      && !aiPrimaryNonRetryableClientError
+      && (!aiData || isUnknownMetricSignature(aiData) || hasMetricMismatch);
+
+    // 측정소 보정이 일어났고, primary 결과가 불확실할 때만 동일 측정소 기준으로 AI 재조회
+    if (shouldRetryResolvedStation) {
       const aiRetryResolvedStartedAt = Date.now();
       try {
         const retriedAi = await fetchAiData(airFetch.resolvedStation, aiProfile, AI_RETRY_TIMEOUT_MS);
@@ -919,6 +975,12 @@ export async function POST(request: Request) {
       } finally {
         timing.aiRetryResolvedMs = Date.now() - aiRetryResolvedStartedAt;
       }
+    } else if (airFetch.resolvedStation !== requestedStation) {
+      console.log(
+        `[BFF] AI resolved-station retry skipped: requested=${requestedStation} resolved=${airFetch.resolvedStation} `
+          + `primaryNonRetryable4xx=${aiPrimaryNonRetryableClientError} hasAiData=${Boolean(aiData)} `
+          + `unknownSignature=${aiData ? isUnknownMetricSignature(aiData) : false} metricMismatch=${hasMetricMismatch}`,
+      );
     }
 
     // 보정이 없더라도 AI 값이 기본 템플릿 시그니처면 동일 측정소로 1회 재시도
