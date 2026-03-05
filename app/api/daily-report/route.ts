@@ -24,6 +24,12 @@ const AI_BFF_CACHE_TTL_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACH
 const AI_BFF_CACHE_MAX_ENTRIES = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACHE_MAX_ENTRIES, 200);
 const AI_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_TIMEOUT_MS, 1800);
 const AI_RETRY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_RETRY_TIMEOUT_MS, 1400);
+const AIR_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_TIMEOUT_MS, 1200);
+const AIR_FETCH_TOTAL_BUDGET_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_TOTAL_BUDGET_MS, 2400);
+const AIR_FETCH_MAX_CANDIDATES = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_MAX_CANDIDATES, 6);
+const AIR_BFF_CACHE_TTL_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_CACHE_TTL_MS, 3 * 60 * 1000);
+const AIR_BFF_CACHE_MAX_ENTRIES = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_CACHE_MAX_ENTRIES, 200);
+const AIR_BFF_CACHE_STALE_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_CACHE_STALE_MS, 15 * 60 * 1000);
 
 const UNKNOWN_STATION_SIGNATURE = {
   pm25_value: 65,
@@ -102,6 +108,20 @@ interface AirFetchResult {
   unknownSignatureCandidates: string[];
 }
 
+type AirCacheSource = 'api' | 'memory' | 'inflight' | 'stale';
+
+interface CachedAirFetchEntry {
+  data: AirFetchResult;
+  expiresAt: number;
+  staleUntil: number;
+}
+
+interface AirFetchWithCacheResult {
+  data: AirFetchResult;
+  cacheHit: boolean;
+  cacheSource: AirCacheSource;
+}
+
 interface AiGuideView {
   summary: string;
   csvReason?: string;
@@ -133,6 +153,8 @@ interface AiFetchResult {
 
 const aiGuideCache = new Map<string, CachedAiGuideEntry>();
 const aiGuideInFlight = new Map<string, Promise<AiGuideView>>();
+const airFetchCache = new Map<string, CachedAirFetchEntry>();
+const airFetchInFlight = new Map<string, Promise<AirFetchResult>>();
 
 function formatTimingLog(timing: Record<string, number>): string {
   return Object.entries(timing)
@@ -154,6 +176,59 @@ function buildAiCacheKey(stationName: string, aiProfile: { ageGroup: string; con
     aiProfile.ageGroup.trim().toLowerCase(),
     aiProfile.condition.trim().toLowerCase(),
   ].join('|');
+}
+
+function buildAirCacheKey(stationName: string): string {
+  return stationName.trim().toLowerCase();
+}
+
+function pruneExpiredAirCache(now = Date.now()): void {
+  for (const [key, entry] of airFetchCache) {
+    if (entry.staleUntil <= now) {
+      airFetchCache.delete(key);
+    }
+  }
+}
+
+function getCachedAirFetch(cacheKey: string): AirFetchWithCacheResult | null {
+  pruneExpiredAirCache();
+  const entry = airFetchCache.get(cacheKey);
+  if (!entry) return null;
+
+  const now = Date.now();
+  let cacheSource: AirCacheSource = 'stale';
+  if (entry.expiresAt > now) {
+    cacheSource = 'memory';
+  } else if (entry.staleUntil <= now) {
+    airFetchCache.delete(cacheKey);
+    return null;
+  }
+
+  airFetchCache.delete(cacheKey);
+  airFetchCache.set(cacheKey, entry);
+  return {
+    data: entry.data,
+    cacheHit: true,
+    cacheSource,
+  };
+}
+
+function setCachedAirFetch(cacheKey: string, data: AirFetchResult): void {
+  if (!data.data) return;
+
+  const now = Date.now();
+  pruneExpiredAirCache(now);
+  airFetchCache.set(cacheKey, {
+    data,
+    expiresAt: now + AIR_BFF_CACHE_TTL_MS,
+    staleUntil: now + AIR_BFF_CACHE_STALE_MS,
+  });
+
+  while (airFetchCache.size > AIR_BFF_CACHE_MAX_ENTRIES) {
+    const oldestKey = airFetchCache.keys().next().value as string | undefined;
+    if (oldestKey === undefined) break;
+    airFetchCache.delete(oldestKey);
+  }
 }
 
 function pruneExpiredAiCache(now = Date.now()): void {
@@ -205,6 +280,10 @@ function setCachedAiGuide(cacheKey: string, data: AiGuideView): void {
 }
 
 function formatAiCacheState(cacheState: { source: AiCacheSource; hit: boolean }): string {
+  return `${cacheState.source}:${cacheState.hit ? 'hit' : 'miss'}`;
+}
+
+function formatAirCacheState(cacheState: { source: AirCacheSource; hit: boolean }): string {
   return `${cacheState.source}:${cacheState.hit ? 'hit' : 'miss'}`;
 }
 
@@ -316,16 +395,40 @@ function isUnknownMetricSignature(
 }
 
 async function fetchAirDataWithStationFallback(stationName: string): Promise<AirFetchResult> {
-  const candidates = buildStationCandidates(stationName);
+  const generatedCandidates = buildStationCandidates(stationName);
+  const candidates = generatedCandidates.slice(0, AIR_FETCH_MAX_CANDIDATES);
+  if (generatedCandidates.length > candidates.length) {
+    console.warn(
+      `[BFF] Air candidate list truncated: requested=${generatedCandidates.length} using=${candidates.length}`,
+    );
+  }
+
   const expectedSido = inferExpectedSido(stationName);
+  const fetchStartedAt = Date.now();
   let fallbackResult: { data: AirQualityRaw; resolvedStation: string; candidate: string } | null = null;
   const unknownSignatureCandidates: string[] = [];
 
   for (const candidate of candidates) {
+    const elapsed = Date.now() - fetchStartedAt;
+    if (elapsed >= AIR_FETCH_TOTAL_BUDGET_MS) {
+      console.warn(
+        `[BFF] Air fetch budget exceeded: budget=${AIR_FETCH_TOTAL_BUDGET_MS}ms tried=${candidate}`,
+      );
+      break;
+    }
+
+    const remainingBudgetMs = AIR_FETCH_TOTAL_BUDGET_MS - elapsed;
+    const timeoutMs = Math.max(200, Math.min(AIR_PRIMARY_TIMEOUT_MS, remainingBudgetMs));
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
       const response = await fetch(
         `${DATA_API_URL}/api/air-quality?stationName=${encodeURIComponent(candidate)}`,
-        { cache: 'no-store' },
+        {
+          cache: 'no-store',
+          signal: controller.signal,
+        },
       );
 
       if (!response.ok) {
@@ -362,7 +465,13 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
         unknownSignatureCandidates,
       };
     } catch (error) {
-      console.error('[BFF] Air API Error:', error, `candidate=${candidate}`);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.warn(`[BFF] Air API Timeout: candidate=${candidate} timeoutMs=${timeoutMs}`);
+      } else {
+        console.error('[BFF] Air API Error:', error, `candidate=${candidate}`);
+      }
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -374,6 +483,62 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
     usedFallbackData: Boolean(fallbackResult),
     unknownSignatureCandidates,
   };
+}
+
+async function fetchAirData(stationName: string): Promise<AirFetchWithCacheResult> {
+  const cacheKey = buildAirCacheKey(stationName);
+  const cached = getCachedAirFetch(cacheKey);
+  if (cached && cached.cacheSource === 'memory') {
+    return cached;
+  }
+
+  const inFlight = airFetchInFlight.get(cacheKey);
+  if (inFlight) {
+    const data = await inFlight;
+    return {
+      data,
+      cacheHit: true,
+      cacheSource: 'inflight',
+    };
+  }
+
+  const stale = cached && cached.cacheSource === 'stale' ? cached.data : null;
+  const requestPromise = fetchAirDataWithStationFallback(stationName)
+    .then((data) => {
+      setCachedAirFetch(cacheKey, data);
+      return data;
+    })
+    .finally(() => {
+      airFetchInFlight.delete(cacheKey);
+    });
+
+  airFetchInFlight.set(cacheKey, requestPromise);
+  try {
+    const data = await requestPromise;
+    if (!data.data && stale) {
+      return {
+        data: stale,
+        cacheHit: true,
+        cacheSource: 'stale',
+      };
+    }
+
+    return {
+      data,
+      cacheHit: false,
+      cacheSource: 'api',
+    };
+  } catch (error) {
+    if (stale) {
+      console.warn(`[BFF] Air API failed, using stale cache: station=${stationName}`);
+      return {
+        data: stale,
+        cacheHit: true,
+        cacheSource: 'stale',
+      };
+    }
+    throw error;
+  }
 }
 
 function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQualityView {
@@ -578,7 +743,7 @@ export async function POST(request: Request) {
     const airFetchStartedAt = Date.now();
     const aiPrimaryStartedAt = Date.now();
     const [airSettled, aiSettled] = await Promise.allSettled([
-      fetchAirDataWithStationFallback(requestedStation).finally(() => {
+      fetchAirData(requestedStation).finally(() => {
         timing.airFetchMs = Date.now() - airFetchStartedAt;
       }),
       fetchAiData(requestedStation, aiProfile, AI_PRIMARY_TIMEOUT_MS).finally(() => {
@@ -586,9 +751,17 @@ export async function POST(request: Request) {
       }),
     ]);
 
+    let airPrimaryCache = { source: 'api', hit: false } as { source: AirCacheSource; hit: boolean };
+    if (airSettled.status === 'fulfilled') {
+      airPrimaryCache = {
+        source: airSettled.value.cacheSource,
+        hit: airSettled.value.cacheHit,
+      };
+    }
+
     const airFetch: AirFetchResult =
       airSettled.status === 'fulfilled'
-        ? airSettled.value
+        ? airSettled.value.data
         : {
             data: null,
             resolvedStation: requestedStation,
@@ -708,9 +881,10 @@ export async function POST(request: Request) {
       `retryResolved=${formatAiCacheState(aiRetryResolvedCache)}`,
       `retrySignature=${formatAiCacheState(aiRetrySignatureCache)}`,
     ].join(' ');
+    const airCacheLog = `primary=${formatAirCacheState(airPrimaryCache)}`;
     console.log(
       `[BFF][timing] route=/api/daily-report requested=${requestedStation} resolved=${reliability.resolvedStation} `
-      + `reliability=${reliability.status} aiOk=${aiOk} ${timingLog} ${aiCacheLog}`,
+      + `reliability=${reliability.status} aiOk=${aiOk} ${timingLog} ${aiCacheLog} ${airCacheLog}`,
     );
 
     return NextResponse.json({
@@ -725,6 +899,7 @@ export async function POST(request: Request) {
         'x-bff-timing': timingLog,
         'server-timing': serverTiming,
         'x-bff-ai-cache': aiCacheLog,
+        'x-bff-air-cache': airCacheLog,
       },
     });
   } catch (error) {
