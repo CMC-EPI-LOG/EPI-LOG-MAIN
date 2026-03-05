@@ -34,6 +34,8 @@ const REPORT_TIMEOUT_MS = 25000;
 const FRESHNESS_DELAYED_MINUTES = 60;
 const FRESHNESS_STALE_MINUTES = 90;
 const AIR_LATEST_POLL_INTERVAL_MS = 60_000;
+const REVERSE_GEOCODE_TIMEOUT_MS = 5000;
+const REVERSE_GEOCODE_RETRY_COUNT = 1;
 const DEFAULT_LOCATION_FALLBACK = {
   lat: 37.5172,
   lng: 127.0473,
@@ -83,6 +85,12 @@ interface WeatherForecastData {
   resolvedStation: string | null;
   items: WeatherForecastItem[];
   timestamp?: string;
+}
+
+interface ReverseGeocodeResponse {
+  regionName?: string;
+  stationCandidate?: string;
+  error?: string;
 }
 
 const KNOWN_CONDITION_LABELS: Record<string, string> = {
@@ -217,6 +225,60 @@ export default function Home() {
     },
     [displayRegion],
   );
+
+  const fetchReverseGeocodeByCoords = useCallback(async (lat: number, lng: number) => {
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt <= REVERSE_GEOCODE_RETRY_COUNT; attempt += 1) {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => {
+        controller.abort();
+      }, REVERSE_GEOCODE_TIMEOUT_MS);
+
+      try {
+        const res = await fetch(apiUrl("/api/reverse-geocode"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lat, lng }),
+          signal: controller.signal,
+        });
+
+        const payload = (await res.json().catch(() => ({}))) as ReverseGeocodeResponse;
+        if (!res.ok) {
+          const reason = payload.error?.trim() || `HTTP_${res.status}`;
+          const geocodeError = new Error(`reverse_geocode_${reason}`);
+          (geocodeError as { retriable?: boolean }).retriable =
+            res.status >= 500 || res.status === 408 || res.status === 429;
+          throw geocodeError;
+        }
+
+        const regionName = payload.regionName?.trim();
+        const stationCandidate = payload.stationCandidate?.trim();
+        if (!regionName || !stationCandidate) {
+          const geocodeError = new Error("reverse_geocode_invalid_payload");
+          (geocodeError as { retriable?: boolean }).retriable = true;
+          throw geocodeError;
+        }
+
+        return { regionName, stationCandidate };
+      } catch (error) {
+        lastError = error;
+        const isAbortError = error instanceof DOMException && error.name === "AbortError";
+        const retriable =
+          isAbortError ||
+          ((error as { retriable?: boolean } | null)?.retriable ?? true);
+        const isLastAttempt = attempt >= REVERSE_GEOCODE_RETRY_COUNT;
+        if (isLastAttempt || !retriable) break;
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, 150 * (attempt + 1));
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    }
+
+    throw lastError || new Error("reverse_geocode_failed");
+  }, []);
 
   const fetchClothingRecommendation = useCallback(async (temperature?: number, humidity?: number) => {
     const requestSeq = ++clothingRequestSeqRef.current;
@@ -480,16 +542,10 @@ export default function Home() {
 
   const updateLocationByCoords = useCallback(async (lat: number, lng: number) => {
     try {
-      const res = await fetch(apiUrl("/api/reverse-geocode"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lng }),
-      });
-
-      if (!res.ok) throw new Error("Geocoding Failed");
-
-      const next = await res.json();
-      const { regionName, stationCandidate } = next;
+      const { regionName, stationCandidate } = await fetchReverseGeocodeByCoords(
+        lat,
+        lng,
+      );
 
       const newLocation = {
         lat,
@@ -504,14 +560,30 @@ export default function Home() {
       fetchData(newLocation, profile, "location");
     } catch (error) {
       console.error("Reverse Geocode Error:", error);
+      const reason =
+        error instanceof Error && error.message
+          ? error.message
+          : "unknown";
+      void logEvent("location_reverse_geocode_failed", {
+        reason,
+        lat: Number(lat.toFixed(6)),
+        lng: Number(lng.toFixed(6)),
+      });
       const fallbackLocation = buildLocationFallback({ lat, lng });
       const fallbackRegionLabel = getFallbackRegionLabel(fallbackLocation);
-      toast.error(`위치 정보를 불러올 수 없어 '${fallbackRegionLabel}' 기준으로 보여드려요 🏢`);
+      const isOutOfCoverage =
+        reason.includes("UNSUPPORTED_COORDINATES") ||
+        reason.includes("NO_RESULTS");
+      toast.error(
+        isOutOfCoverage
+          ? `현재 위치는 지원 지역 밖이라 '${fallbackRegionLabel}' 기준으로 보여드려요 🏢`
+          : `위치 정보를 불러올 수 없어 '${fallbackRegionLabel}' 기준으로 보여드려요 🏢`,
+      );
       setLocation(fallbackLocation);
       setDisplayRegion(fallbackRegionLabel);
       fetchData(fallbackLocation, profile, "location");
     }
-  }, [buildLocationFallback, fetchData, getFallbackRegionLabel, profile, setLocation]);
+  }, [buildLocationFallback, fetchReverseGeocodeByCoords, fetchData, getFallbackRegionLabel, logEvent, profile, setLocation]);
 
   const requestCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -534,14 +606,22 @@ export default function Home() {
         console.error("Location permission denied or error:", error);
         if (error?.code === 1) {
           void logAddressConsent(false);
+          setLocationPermissionStatus("denied");
+          toast.error("현재 위치 권한이 없어 기존 지역 기준으로 안내해요.");
+        } else if (error?.code === 3) {
+          // Permission can still be granted, but GPS/IP lookup can time out.
+          setLocationPermissionStatus("idle");
+          toast.error("현재 위치 확인이 지연되어 기존 지역 기준으로 안내해요.");
+        } else {
+          setLocationPermissionStatus("idle");
+          toast.error("현재 위치를 불러오지 못해 기존 지역 기준으로 안내해요.");
         }
-        setLocationPermissionStatus("denied");
-        toast.error("현재 위치 권한이 없어 기존 지역 기준으로 안내해요.");
         setIsRequestingCurrentLocation(false);
       },
       {
-        enableHighAccuracy: true,
-        timeout: 10000,
+        enableHighAccuracy: false,
+        timeout: 15000,
+        maximumAge: 10 * 60 * 1000,
       },
     );
   }, [logAddressConsent, updateLocationByCoords]);

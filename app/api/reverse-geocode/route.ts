@@ -2,6 +2,87 @@ import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/cors';
 
 const KAKAO_REST_API_KEY = process.env.KAKAO_REST_API_KEY;
+const KAKAO_TIMEOUT_MS = 5000;
+
+interface KakaoRegionDocument {
+  address_name?: string;
+  region_1depth_name?: string;
+  region_2depth_name?: string;
+  region_3depth_name?: string;
+  region_type?: string;
+}
+
+function toCoordinate(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeRegion(doc: KakaoRegionDocument) {
+  const depth1 = (doc.region_1depth_name || '').trim();
+  const depth2 = (doc.region_2depth_name || '').trim();
+  const depth3 = (doc.region_3depth_name || '').trim();
+  const stationCandidate =
+    [depth1, depth2, depth3].filter(Boolean).join(' ').trim() ||
+    [depth2, depth3].filter(Boolean).join(' ').trim() ||
+    depth1 ||
+    depth2 ||
+    depth3;
+  const regionName = depth3 || depth2;
+
+  if (!regionName || !stationCandidate) return null;
+  return {
+    address: doc.address_name,
+    regionName,
+    stationCandidate,
+  };
+}
+
+async function fetchKakaoRegion(lat: number, lng: number): Promise<KakaoRegionDocument | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, KAKAO_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(
+      `https://dapi.kakao.com/v2/local/geo/coord2regioncode.json?x=${lng}&y=${lat}`,
+      {
+        headers: {
+          Authorization: `KakaoAK ${KAKAO_REST_API_KEY}`,
+        },
+        signal: controller.signal,
+        cache: 'no-store',
+      },
+    );
+
+    if (!response.ok) {
+      const status = response.status;
+      const bodyText = await response.text().catch(() => '');
+      throw new Error(`KAKAO_HTTP_${status}:${bodyText.slice(0, 200)}`);
+    }
+
+    const data = (await response.json()) as { documents?: KakaoRegionDocument[] };
+    const docs = Array.isArray(data.documents) ? data.documents : [];
+    if (docs.length === 0) return null;
+
+    // Prefer administrative region (H code) when available.
+    return docs.find((doc) => doc.region_type === 'H') || docs[0] || null;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('KAKAO_TIMEOUT');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
@@ -9,11 +90,19 @@ export async function OPTIONS() {
 
 export async function POST(request: Request) {
   try {
-    const { lat, lng } = await request.json();
+    const rawBody = (await request.json()) as { lat?: unknown; lng?: unknown };
+    const lat = toCoordinate(rawBody?.lat);
+    const lng = toCoordinate(rawBody?.lng);
 
-    if (!lat || !lng) {
+    if (lat === null || lng === null) {
       return NextResponse.json(
         { error: 'Latitude and Longitude are required' },
+        { status: 400, headers: corsHeaders() },
+      );
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return NextResponse.json(
+        { error: 'Invalid coordinate range' },
         { status: 400, headers: corsHeaders() },
       );
     }
@@ -26,61 +115,50 @@ export async function POST(request: Request) {
       );
     }
 
-    const response = await fetch(
-      `https://dapi.kakao.com/v2/local/geo/coord2regioncode.json?x=${lng}&y=${lat}`,
-      {
-        headers: {
-          Authorization: `KakaoAK ${KAKAO_REST_API_KEY}`,
-        },
-      }
-    );
-
-    if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Kakao API Error:', errorData);
-        throw new Error('Failed to fetch from Kakao API');
-    }
-
-    const data = await response.json();
-    
-    // Kakao returns documents[0] as administrative region (H-Code), documents[1] as legal region (B-Code).
-    // Usually documents[0] (Administrative) is more user-friendly (e.g., Yeoksam 1-dong).
-    // Let's return the full address or just the depth2/depth3 name.
-    // data.documents[0].address_name -> '서울특별시 강남구 역삼1동'
-    // data.documents[0].region_2depth_name -> '강남구'
-    // data.documents[0].region_3depth_name -> '역삼1동'
-
-    const region = data.documents[0];
-    
+    const region = await fetchKakaoRegion(lat, lng);
     if (!region) {
-         return NextResponse.json(
-           { error: 'No results found' },
-           { status: 404, headers: corsHeaders() },
-         );
+      return NextResponse.json(
+        { error: 'UNSUPPORTED_COORDINATES' },
+        { status: 422, headers: corsHeaders() },
+      );
     }
-    
-    const depth1 = (region.region_1depth_name || '').trim();
-    const depth2 = (region.region_2depth_name || '').trim();
-    const depth3 = (region.region_3depth_name || '').trim();
-    const stationCandidate =
-      [depth1, depth2, depth3].filter(Boolean).join(' ').trim() ||
-      [depth2, depth3].filter(Boolean).join(' ').trim() ||
-      depth1 ||
-      depth2 ||
-      depth3;
 
-    return NextResponse.json({
-      address: region.address_name,
-      regionName: depth3 || depth2, // 역삼1동 (없으면 강남구)
-      // 시도/시군구/동을 함께 넘겨 동일 지명(중구/동구 등)으로 인한 타 시도 오매칭을 줄인다.
-      stationCandidate,
-    }, { headers: corsHeaders() });
+    const normalized = normalizeRegion(region);
+    if (!normalized) {
+      return NextResponse.json(
+        { error: 'NO_RESULTS' },
+        { status: 422, headers: corsHeaders() },
+      );
+    }
 
+    return NextResponse.json(
+      {
+        address: normalized.address,
+        regionName: normalized.regionName,
+        stationCandidate: normalized.stationCandidate,
+      },
+      { headers: corsHeaders() },
+    );
   } catch (error) {
     console.error('Reverse Geocode Error:', error);
+
+    const reason = error instanceof Error ? error.message : 'unknown';
+    if (reason.startsWith('KAKAO_HTTP_4')) {
+      return NextResponse.json(
+        { error: 'UNSUPPORTED_COORDINATES' },
+        { status: 422, headers: corsHeaders() },
+      );
+    }
+    if (reason === 'KAKAO_TIMEOUT') {
+      return NextResponse.json(
+        { error: 'UPSTREAM_TIMEOUT' },
+        { status: 504, headers: corsHeaders() },
+      );
+    }
+
     return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500, headers: corsHeaders() },
+      { error: 'UPSTREAM_ERROR' },
+      { status: 502, headers: corsHeaders() },
     );
   }
 }
