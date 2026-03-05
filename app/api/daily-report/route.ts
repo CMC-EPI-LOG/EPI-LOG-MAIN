@@ -13,6 +13,18 @@ const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.ver
 const FALLBACK_TEMP = 22;
 const FALLBACK_HUMIDITY = 45;
 
+function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed <= 0) return fallback;
+  return Math.round(parsed);
+}
+
+const AI_BFF_CACHE_TTL_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACHE_TTL_MS, 5 * 60 * 1000);
+const AI_BFF_CACHE_MAX_ENTRIES = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACHE_MAX_ENTRIES, 200);
+const AI_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_TIMEOUT_MS, 1800);
+const AI_RETRY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_RETRY_TIMEOUT_MS, 1400);
+
 const UNKNOWN_STATION_SIGNATURE = {
   pm25_value: 65,
   pm10_value: 85,
@@ -106,6 +118,22 @@ interface AiGuideView {
   no2_value?: number;
 }
 
+type AiCacheSource = 'api' | 'memory' | 'inflight';
+
+interface CachedAiGuideEntry {
+  data: AiGuideView;
+  expiresAt: number;
+}
+
+interface AiFetchResult {
+  data: AiGuideView;
+  cacheHit: boolean;
+  cacheSource: AiCacheSource;
+}
+
+const aiGuideCache = new Map<string, CachedAiGuideEntry>();
+const aiGuideInFlight = new Map<string, Promise<AiGuideView>>();
+
 function formatTimingLog(timing: Record<string, number>): string {
   return Object.entries(timing)
     .filter(([, value]) => Number.isFinite(value))
@@ -118,6 +146,66 @@ function buildServerTimingHeader(timing: Record<string, number>): string {
     .filter(([, value]) => Number.isFinite(value))
     .map(([key, value]) => `${key};dur=${value}`)
     .join(', ');
+}
+
+function buildAiCacheKey(stationName: string, aiProfile: { ageGroup: string; condition: string }): string {
+  return [
+    stationName.trim().toLowerCase(),
+    aiProfile.ageGroup.trim().toLowerCase(),
+    aiProfile.condition.trim().toLowerCase(),
+  ].join('|');
+}
+
+function pruneExpiredAiCache(now = Date.now()): void {
+  for (const [key, entry] of aiGuideCache) {
+    if (entry.expiresAt <= now) {
+      aiGuideCache.delete(key);
+    }
+  }
+}
+
+function getCachedAiGuide(cacheKey: string): AiGuideView | null {
+  pruneExpiredAiCache();
+  const entry = aiGuideCache.get(cacheKey);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    aiGuideCache.delete(cacheKey);
+    return null;
+  }
+
+  // Refresh insertion order for basic LRU behavior.
+  aiGuideCache.delete(cacheKey);
+  aiGuideCache.set(cacheKey, entry);
+  return entry.data;
+}
+
+function isCacheableAiGuide(data: AiGuideView): boolean {
+  const summary = data.summary || '';
+  const detail = data.detail || '';
+  if (summary.includes('설정 오류') || detail.includes('설정 오류')) return false;
+  if (summary.includes('잠시 쉬고') || detail.includes('잠시 쉬고')) return false;
+  return true;
+}
+
+function setCachedAiGuide(cacheKey: string, data: AiGuideView): void {
+  if (!isCacheableAiGuide(data)) return;
+
+  const now = Date.now();
+  pruneExpiredAiCache(now);
+  aiGuideCache.set(cacheKey, {
+    data,
+    expiresAt: now + AI_BFF_CACHE_TTL_MS,
+  });
+
+  while (aiGuideCache.size > AI_BFF_CACHE_MAX_ENTRIES) {
+    const oldestKey = aiGuideCache.keys().next().value as string | undefined;
+    if (oldestKey === undefined) break;
+    aiGuideCache.delete(oldestKey);
+  }
+}
+
+function formatAiCacheState(cacheState: { source: AiCacheSource; hit: boolean }): string {
+  return `${cacheState.source}:${cacheState.hit ? 'hit' : 'miss'}`;
 }
 
 
@@ -335,25 +423,42 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
   };
 }
 
-async function fetchAiData(stationName: string, aiProfile: { ageGroup: string; condition: string }) {
-  const response = await fetch(`${AI_API_URL}/api/advice`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      stationName,
-      userProfile: aiProfile,
-    }),
-    cache: 'no-store',
-  });
+async function fetchAiDataFromApi(
+  stationName: string,
+  aiProfile: { ageGroup: string; condition: string },
+  timeoutMs: number,
+): Promise<AiGuideView> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${AI_API_URL}/api/advice`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        stationName,
+        userProfile: aiProfile,
+      }),
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`AI API timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     throw new Error(`AI API Failed: ${response.status} ${response.statusText}`);
   }
 
   const raw = (await response.json()) as Record<string, unknown>;
-  console.log('[BFF] Raw AI Data:', JSON.stringify(raw, null, 2));
   const csvReason = typeof raw.csv_reason === 'string'
     ? raw.csv_reason
     : (typeof raw.csvReason === 'string'
@@ -396,6 +501,49 @@ async function fetchAiData(stationName: string, aiProfile: { ageGroup: string; c
   } satisfies AiGuideView;
 }
 
+async function fetchAiData(
+  stationName: string,
+  aiProfile: { ageGroup: string; condition: string },
+  timeoutMs: number,
+): Promise<AiFetchResult> {
+  const cacheKey = buildAiCacheKey(stationName, aiProfile);
+  const cached = getCachedAiGuide(cacheKey);
+  if (cached) {
+    return {
+      data: cached,
+      cacheHit: true,
+      cacheSource: 'memory',
+    };
+  }
+
+  const inFlight = aiGuideInFlight.get(cacheKey);
+  if (inFlight) {
+    const data = await inFlight;
+    return {
+      data,
+      cacheHit: true,
+      cacheSource: 'inflight',
+    };
+  }
+
+  const requestPromise = fetchAiDataFromApi(stationName, aiProfile, timeoutMs)
+    .then((data) => {
+      setCachedAiGuide(cacheKey, data);
+      return data;
+    })
+    .finally(() => {
+      aiGuideInFlight.delete(cacheKey);
+    });
+
+  aiGuideInFlight.set(cacheKey, requestPromise);
+  const data = await requestPromise;
+  return {
+    data,
+    cacheHit: false,
+    cacheSource: 'api',
+  };
+}
+
 export async function POST(request: Request) {
   const requestStartedAt = Date.now();
   const timing: Record<string, number> = {};
@@ -433,7 +581,7 @@ export async function POST(request: Request) {
       fetchAirDataWithStationFallback(requestedStation).finally(() => {
         timing.airFetchMs = Date.now() - airFetchStartedAt;
       }),
-      fetchAiData(requestedStation, aiProfile).finally(() => {
+      fetchAiData(requestedStation, aiProfile, AI_PRIMARY_TIMEOUT_MS).finally(() => {
         timing.aiPrimaryMs = Date.now() - aiPrimaryStartedAt;
       }),
     ]);
@@ -466,7 +614,17 @@ export async function POST(request: Request) {
     console.log('[BFF] Air station candidates:', airFetch.triedStations.join(' -> '));
     console.log('[BFF] Resolved station for air/ai:', airFetch.resolvedStation);
 
-    let aiData: AiGuideView | null = aiSettled.status === 'fulfilled' ? aiSettled.value : null;
+    let aiPrimaryCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
+    if (aiSettled.status === 'fulfilled') {
+      aiPrimaryCache = {
+        source: aiSettled.value.cacheSource,
+        hit: aiSettled.value.cacheHit,
+      };
+    }
+    let aiRetryResolvedCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
+    let aiRetrySignatureCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
+
+    let aiData: AiGuideView | null = aiSettled.status === 'fulfilled' ? aiSettled.value.data : null;
     let aiOk = aiSettled.status === 'fulfilled';
     if (aiSettled.status !== 'fulfilled') {
       console.error('[BFF] AI API Error(primary):', aiSettled.reason);
@@ -485,8 +643,12 @@ export async function POST(request: Request) {
     if (airFetch.resolvedStation !== requestedStation) {
       const aiRetryResolvedStartedAt = Date.now();
       try {
-        const retriedAiData = await fetchAiData(airFetch.resolvedStation, aiProfile);
-        aiData = retriedAiData;
+        const retriedAi = await fetchAiData(airFetch.resolvedStation, aiProfile, AI_RETRY_TIMEOUT_MS);
+        aiData = retriedAi.data;
+        aiRetryResolvedCache = {
+          source: retriedAi.cacheSource,
+          hit: retriedAi.cacheHit,
+        };
         aiOk = true;
       } catch (error) {
         console.error('[BFF] AI API Error(retry with resolved station):', error);
@@ -499,9 +661,13 @@ export async function POST(request: Request) {
     if (aiData && isUnknownMetricSignature(aiData)) {
       const aiRetrySignatureStartedAt = Date.now();
       try {
-        const retriedAiData = await fetchAiData(airFetch.resolvedStation, aiProfile);
-        if (!isUnknownMetricSignature(retriedAiData)) {
-          aiData = retriedAiData;
+        const retriedAi = await fetchAiData(airFetch.resolvedStation, aiProfile, AI_RETRY_TIMEOUT_MS);
+        aiRetrySignatureCache = {
+          source: retriedAi.cacheSource,
+          hit: retriedAi.cacheHit,
+        };
+        if (!isUnknownMetricSignature(retriedAi.data)) {
+          aiData = retriedAi.data;
         }
         aiOk = true;
       } catch (error) {
@@ -537,9 +703,14 @@ export async function POST(request: Request) {
     timing.totalMs = Date.now() - requestStartedAt;
     const timingLog = formatTimingLog(timing);
     const serverTiming = buildServerTimingHeader(timing);
+    const aiCacheLog = [
+      `primary=${formatAiCacheState(aiPrimaryCache)}`,
+      `retryResolved=${formatAiCacheState(aiRetryResolvedCache)}`,
+      `retrySignature=${formatAiCacheState(aiRetrySignatureCache)}`,
+    ].join(' ');
     console.log(
       `[BFF][timing] route=/api/daily-report requested=${requestedStation} resolved=${reliability.resolvedStation} `
-      + `reliability=${reliability.status} aiOk=${aiOk} ${timingLog}`,
+      + `reliability=${reliability.status} aiOk=${aiOk} ${timingLog} ${aiCacheLog}`,
     );
 
     return NextResponse.json({
@@ -553,6 +724,7 @@ export async function POST(request: Request) {
         ...corsHeaders(),
         'x-bff-timing': timingLog,
         'server-timing': serverTiming,
+        'x-bff-ai-cache': aiCacheLog,
       },
     });
   } catch (error) {
