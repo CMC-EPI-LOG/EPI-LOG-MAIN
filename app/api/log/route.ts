@@ -5,6 +5,19 @@ import { corsHeaders } from '@/lib/cors';
 
 export const runtime = 'nodejs';
 
+let hasWarnedMissingMongoUri = false;
+
+const isMongoConfigured = () => {
+  const uri = process.env.MONGODB_URI;
+  return typeof uri === 'string' && uri.trim().length > 0;
+};
+
+const warnMissingMongoUriOnce = () => {
+  if (hasWarnedMissingMongoUri) return;
+  hasWarnedMissingMongoUri = true;
+  console.warn('[api/log] skip persistence: MONGODB_URI is not configured');
+};
+
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
@@ -38,6 +51,11 @@ export async function POST(request: Request) {
     );
   }
 
+  if (!isMongoConfigured()) {
+    warnMissingMongoUriOnce();
+    return NextResponse.json({ ok: true, skipped: true }, { status: 202, headers: corsHeaders() });
+  }
+
   try {
     await dbConnect();
 
@@ -67,6 +85,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true }, { headers: corsHeaders() });
   } catch (err) {
+    if (err instanceof Error && err.message.includes('Missing env: MONGODB_URI')) {
+      warnMissingMongoUriOnce();
+      return NextResponse.json({ ok: true, skipped: true }, { status: 202, headers: corsHeaders() });
+    }
+
     console.error('[api/log] failed:', err);
     return NextResponse.json({ ok: false }, { status: 500, headers: corsHeaders() });
   }
