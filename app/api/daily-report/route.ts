@@ -20,9 +20,25 @@ function parsePositiveIntEnv(value: string | undefined, fallback: number): numbe
   return Math.round(parsed);
 }
 
+function parseNonNegativeIntEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed < 0) return fallback;
+  return Math.round(parsed);
+}
+
 const AI_BFF_CACHE_TTL_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACHE_TTL_MS, 5 * 60 * 1000);
 const AI_BFF_CACHE_MAX_ENTRIES = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACHE_MAX_ENTRIES, 200);
-const AI_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_TIMEOUT_MS, 1800);
+const AI_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_TIMEOUT_MS, 3200);
+const AI_PRIMARY_RETRY_COUNT = parseNonNegativeIntEnv(process.env.DAILY_REPORT_AI_PRIMARY_RETRY_COUNT, 1);
+const AI_PRIMARY_RETRY_TIMEOUT_MS = parsePositiveIntEnv(
+  process.env.DAILY_REPORT_AI_PRIMARY_RETRY_TIMEOUT_MS,
+  AI_PRIMARY_TIMEOUT_MS,
+);
+const AI_PRIMARY_RETRY_BACKOFF_MS = parseNonNegativeIntEnv(
+  process.env.DAILY_REPORT_AI_PRIMARY_RETRY_BACKOFF_MS,
+  200,
+);
 const AI_RETRY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_RETRY_TIMEOUT_MS, 1400);
 const AIR_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_TIMEOUT_MS, 1200);
 const AIR_FETCH_TOTAL_BUDGET_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_TOTAL_BUDGET_MS, 2400);
@@ -149,6 +165,10 @@ interface AiFetchResult {
   data: AiGuideView;
   cacheHit: boolean;
   cacheSource: AiCacheSource;
+}
+
+interface AiFetchAttemptResult extends AiFetchResult {
+  attempts: number;
 }
 
 const aiGuideCache = new Map<string, CachedAiGuideEntry>();
@@ -666,6 +686,27 @@ async function fetchAiDataFromApi(
   } satisfies AiGuideView;
 }
 
+function isAiRetryableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  const message = error.message.toLowerCase();
+  if (message.includes('timeout')) return true;
+  if (message.includes('fetch failed')) return true;
+  if (message.includes('network')) return true;
+
+  const statusMatch = error.message.match(/AI API Failed:\s*(\d{3})/i);
+  if (!statusMatch) return false;
+
+  const statusCode = Number(statusMatch[1]);
+  return statusCode === 429 || statusCode >= 500;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 async function fetchAiData(
   stationName: string,
   aiProfile: { ageGroup: string; condition: string },
@@ -709,6 +750,49 @@ async function fetchAiData(
   };
 }
 
+async function fetchAiDataWithRetry(
+  stationName: string,
+  aiProfile: { ageGroup: string; condition: string },
+  options: {
+    primaryTimeoutMs: number;
+    retryTimeoutMs: number;
+    retryCount: number;
+    retryBackoffMs: number;
+  },
+): Promise<AiFetchAttemptResult> {
+  const maxAttempts = Math.max(1, options.retryCount + 1);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const timeoutMs = attempt === 0 ? options.primaryTimeoutMs : options.retryTimeoutMs;
+
+    try {
+      const fetched = await fetchAiData(stationName, aiProfile, timeoutMs);
+      return {
+        ...fetched,
+        attempts: attempt + 1,
+      };
+    } catch (error) {
+      lastError = error;
+      const canRetry = attempt < maxAttempts - 1 && isAiRetryableError(error);
+      if (!canRetry) {
+        throw error;
+      }
+
+      const backoffMs = options.retryBackoffMs * (attempt + 1);
+      console.warn(
+        `[BFF] AI primary retry scheduled: attempt=${attempt + 1} `
+          + `timeoutMs=${options.retryTimeoutMs} backoffMs=${backoffMs} reason=${String(error)}`,
+      );
+      if (backoffMs > 0) {
+        await sleep(backoffMs);
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('AI API retry attempts exhausted');
+}
+
 export async function POST(request: Request) {
   const requestStartedAt = Date.now();
   const timing: Record<string, number> = {};
@@ -746,7 +830,12 @@ export async function POST(request: Request) {
       fetchAirData(requestedStation).finally(() => {
         timing.airFetchMs = Date.now() - airFetchStartedAt;
       }),
-      fetchAiData(requestedStation, aiProfile, AI_PRIMARY_TIMEOUT_MS).finally(() => {
+      fetchAiDataWithRetry(requestedStation, aiProfile, {
+        primaryTimeoutMs: AI_PRIMARY_TIMEOUT_MS,
+        retryTimeoutMs: AI_PRIMARY_RETRY_TIMEOUT_MS,
+        retryCount: AI_PRIMARY_RETRY_COUNT,
+        retryBackoffMs: AI_PRIMARY_RETRY_BACKOFF_MS,
+      }).finally(() => {
         timing.aiPrimaryMs = Date.now() - aiPrimaryStartedAt;
       }),
     ]);
@@ -788,11 +877,13 @@ export async function POST(request: Request) {
     console.log('[BFF] Resolved station for air/ai:', airFetch.resolvedStation);
 
     let aiPrimaryCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
+    let aiPrimaryAttempts = 1;
     if (aiSettled.status === 'fulfilled') {
       aiPrimaryCache = {
         source: aiSettled.value.cacheSource,
         hit: aiSettled.value.cacheHit,
       };
+      aiPrimaryAttempts = aiSettled.value.attempts;
     }
     let aiRetryResolvedCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
     let aiRetrySignatureCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
@@ -877,7 +968,7 @@ export async function POST(request: Request) {
     const timingLog = formatTimingLog(timing);
     const serverTiming = buildServerTimingHeader(timing);
     const aiCacheLog = [
-      `primary=${formatAiCacheState(aiPrimaryCache)}`,
+      `primary=${formatAiCacheState(aiPrimaryCache)} attempts=${aiPrimaryAttempts}`,
       `retryResolved=${formatAiCacheState(aiRetryResolvedCache)}`,
       `retrySignature=${formatAiCacheState(aiRetrySignatureCache)}`,
     ].join(' ');
