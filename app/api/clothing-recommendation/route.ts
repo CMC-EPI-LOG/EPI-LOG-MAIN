@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/cors';
+import { withApiObservability } from '@/lib/api-observability';
 
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
 const FALLBACK_TEMP = 22;
@@ -97,11 +98,11 @@ async function parseRequestBody(request: Request): Promise<Record<string, unknow
   }
 }
 
-export async function OPTIONS() {
+async function handleOptions() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   const body = await parseRequestBody(request);
   const temperature = toNumber(body.temperature, FALLBACK_TEMP);
   const humidity = toNumber(body.humidity, FALLBACK_HUMIDITY);
@@ -144,3 +145,6 @@ export async function POST(request: Request) {
     });
   }
 }
+
+export const OPTIONS = withApiObservability('/api/clothing-recommendation', 'OPTIONS', handleOptions);
+export const POST = withApiObservability('/api/clothing-recommendation', 'POST', handlePost);

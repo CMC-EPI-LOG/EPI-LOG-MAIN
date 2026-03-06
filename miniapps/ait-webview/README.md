@@ -42,6 +42,8 @@ adb reverse tcp:5173 tcp:5173
 npm run build
 ```
 
+`npm run build`는 SDK 2.0.1 기준 `ait build`를 실행합니다.
+
 빌드 산출물은 `dist/`에 생성되고, `.ait` 파일도 함께 생성됩니다(`*.ait`는 gitignore 처리됨).
 
 ## 분석(Analytics)
@@ -60,6 +62,7 @@ npm run build
 - `VITE_SENTRY_ENVIRONMENT`: 환경 이름(예: `production`, `staging`)
 - `VITE_SENTRY_RELEASE`: 릴리즈 식별자(예: git sha)
 - `VITE_SENTRY_TRACES_SAMPLE_RATE`: 트레이스 샘플링 비율(기본 `0`)
+- 공유 OG 이미지는 `https://www.ai-soom.site/thumbnail.png`로 고정되어 있습니다.
 
 ### sourcemap 업로드
 
@@ -87,8 +90,7 @@ npm run release:build
 
 ### granite.config.ts 플러그인 검토 결과
 
-현재 `@apps-in-toss/web-framework@1.9.4` 빌드 경로는 사용자 정의 Granite 플러그인 체인을 외부 config에서 직접 주입하지 않습니다.
-그래서 sourcemap 운영은 `sentry-cli` 스크립트 기반으로 처리합니다.
+SDK `@apps-in-toss/web-framework@2.0.1` 기준으로도 sourcemap 운영은 `sentry-cli` 스크립트 기반으로 처리합니다.
 
 ## 디자인 시스템(TDS)
 

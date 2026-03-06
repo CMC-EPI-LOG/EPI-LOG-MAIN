@@ -144,6 +144,17 @@ function buildConditionSummary(profile: UserProfile | null | undefined): string 
   return `질환: ${merged.join(", ")}`;
 }
 
+function readSharedByFromUrl(): string | null {
+  try {
+    const value = new URL(window.location.href).searchParams.get("shared_by");
+    if (!value) return null;
+    const trimmed = value.trim();
+    return trimmed || null;
+  } catch {
+    return null;
+  }
+}
+
 function parseKstDataTimeToEpoch(raw?: string | null): number | null {
   if (!raw) return null;
   const matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
@@ -177,6 +188,7 @@ export default function Home() {
   const [locationPermissionStatus, setLocationPermissionStatus] =
     useState<LocationPermissionStatus>("idle");
   const [isRequestingCurrentLocation, setIsRequestingCurrentLocation] = useState(false);
+  const [sharedByToken, setSharedByToken] = useState<string | null>(null);
 
   const [clothingData, setClothingData] = useState<ClothingRecommendationData | null>(null);
   const [isClothingLoading, setIsClothingLoading] = useState(false);
@@ -192,6 +204,20 @@ export default function Home() {
   const loadingStartedAtRef = useRef<number | null>(null);
   const lastFallbackExposeKeyRef = useRef<string | null>(null);
   const airLatestInFlightRef = useRef(false);
+
+  useEffect(() => {
+    const sharedBy = readSharedByFromUrl();
+    if (!sharedBy) return;
+
+    setSharedByToken(sharedBy);
+    void logEvent("share_entry_personalized_shown", {
+      shared_by_prefix: sharedBy.slice(0, 8),
+      personalized: true,
+    });
+    trackCoreEvent("share_entry_personalized_shown", {
+      shared_entry: "true",
+    });
+  }, [logEvent]);
 
   const buildLocationFallback = useCallback(
     (coords?: { lat?: number; lng?: number }) => {
@@ -1019,6 +1045,25 @@ export default function Home() {
       )}
 
       <AiNotice />
+
+      {sharedByToken && (
+        <section className="mx-auto mb-3 max-w-2xl" data-testid="shared-entry-banner">
+          <div className="rounded-[20px] border-2 border-black bg-[#FFF8D6] px-4 py-3 shadow-bento-sm">
+            <p className="text-[11px] font-black text-gray-700">공유 링크로 들어왔어요</p>
+            <p className="mt-1 text-sm font-semibold text-gray-700">
+              친구가 공유한 가이드예요. 우리 아이 조건으로 다시 맞춤 결과를 확인해보세요.
+            </p>
+            <button
+              type="button"
+              onClick={() => openSettingsModal("age")}
+              className="mt-2 inline-flex min-h-10 items-center rounded-full border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black shadow-bento-sm transition hover:bg-gray-50"
+              data-testid="shared-entry-cta"
+            >
+              내 조건으로 맞춤 보기
+            </button>
+          </div>
+        </section>
+      )}
 
       {isRefreshing && (
         <div className="max-w-2xl mx-auto mb-3">

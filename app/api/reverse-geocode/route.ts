@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/cors';
+import { withApiObservability } from '@/lib/api-observability';
 
 const KAKAO_REST_API_KEY = process.env.KAKAO_REST_API_KEY;
 const KAKAO_TIMEOUT_MS = 5000;
@@ -84,11 +85,11 @@ async function fetchKakaoRegion(lat: number, lng: number): Promise<KakaoRegionDo
   }
 }
 
-export async function OPTIONS() {
+async function handleOptions() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     const rawBody = (await request.json()) as { lat?: unknown; lng?: unknown };
     const lat = toCoordinate(rawBody?.lat);
@@ -162,3 +163,6 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const OPTIONS = withApiObservability('/api/reverse-geocode', 'OPTIONS', handleOptions);
+export const POST = withApiObservability('/api/reverse-geocode', 'POST', handlePost);

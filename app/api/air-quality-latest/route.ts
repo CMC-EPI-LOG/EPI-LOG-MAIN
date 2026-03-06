@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { buildReliabilityMeta, type AirFetchResult } from '@/lib/dailyReportDecision';
 import { corsHeaders } from '@/lib/cors';
+import { withApiObservability } from '@/lib/api-observability';
 import {
   buildStationCandidates,
   inferExpectedSido,
@@ -199,11 +200,11 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function OPTIONS() {
+async function handleOptions() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
-export async function GET(request: Request) {
+async function handleGet(request: Request) {
   const url = new URL(request.url);
   const stationName = url.searchParams.get('stationName')?.trim();
   if (!stationName) {
@@ -231,3 +232,6 @@ export async function GET(request: Request) {
     },
   );
 }
+
+export const OPTIONS = withApiObservability('/api/air-quality-latest', 'OPTIONS', handleOptions);
+export const GET = withApiObservability('/api/air-quality-latest', 'GET', handleGet);

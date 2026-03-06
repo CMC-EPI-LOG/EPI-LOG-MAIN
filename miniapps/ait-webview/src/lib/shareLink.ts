@@ -1,4 +1,5 @@
 const DEFAULT_APP_NAME = 'epilog';
+const DEFAULT_SHARE_OG_IMAGE_URL = 'https://www.ai-soom.site/thumbnail.png';
 const TOSS_HOSTNAME_PATTERN = /^([a-z0-9-]+)\.(?:private-)?apps\.tossmini\.com$/i;
 
 export function resolveMiniappNameFromHostname(
@@ -17,6 +18,14 @@ export function buildMiniappDeepLink(appName: string, shareId: string): string {
     source: 'result_share',
   });
   return `intoss://${safeAppName}?${params.toString()}`;
+}
+
+export function resolveShareOgImageUrl(): string {
+  const trimmed = DEFAULT_SHARE_OG_IMAGE_URL.trim();
+  if (trimmed && /^https:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return DEFAULT_SHARE_OG_IMAGE_URL;
 }
 
 export function buildTossShareMessage(options: {

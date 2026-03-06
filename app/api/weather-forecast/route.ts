@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { dbConnect } from '@/lib/mongoose';
 import { corsHeaders } from '@/lib/cors';
 import { buildStationCandidates } from '@/lib/stationResolution';
+import { withApiObservability } from '@/lib/api-observability';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -376,11 +377,11 @@ function pickWindowItems(
   return selected.slice(0, FORECAST_WINDOW_HOURS);
 }
 
-export async function OPTIONS() {
+async function handleOptions() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
-export async function GET(request: Request) {
+async function handleGet(request: Request) {
   const url = new URL(request.url);
   const stationName = url.searchParams.get('stationName')?.trim();
 
@@ -436,3 +437,6 @@ export async function GET(request: Request) {
     );
   }
 }
+
+export const OPTIONS = withApiObservability('/api/weather-forecast', 'OPTIONS', handleOptions);
+export const GET = withApiObservability('/api/weather-forecast', 'GET', handleGet);

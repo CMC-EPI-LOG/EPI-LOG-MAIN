@@ -3,12 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const sentryMocks = vi.hoisted(() => ({
   setTag: vi.fn(),
   setContext: vi.fn(),
+  addBreadcrumb: vi.fn(),
   captureException: vi.fn(),
 }));
 
 vi.mock('@sentry/nextjs', () => ({
   setTag: sentryMocks.setTag,
   setContext: sentryMocks.setContext,
+  addBreadcrumb: sentryMocks.addBreadcrumb,
   captureException: sentryMocks.captureException,
   withScope: (callback: (scope: { setTag: () => void; setLevel: () => void; setExtra: () => void }) => void) => {
     callback({
