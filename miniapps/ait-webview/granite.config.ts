@@ -16,7 +16,7 @@ export default defineConfig({
     port: 5173,
     commands: {
       dev: 'vite',
-      // NOTE: web-framework@1.9.4 does not expose custom Granite plugin injection here.
+      // Keep Vite build command explicit; framework build command is handled via `ait build`.
       build: 'tsc -b && vite build',
     },
   },

@@ -2,7 +2,11 @@ const env = (import.meta as ImportMeta & {
   env?: Record<string, string | undefined>;
 }).env;
 
-export const GA_ID = env?.VITE_GA_ID || "";
+const processEnvGaId = (globalThis as {
+  process?: { env?: Record<string, string | undefined> };
+}).process?.env?.VITE_GA_ID;
+
+export const GA_ID = env?.VITE_GA_ID || processEnvGaId || "";
 
 declare global {
   interface Window {
@@ -149,6 +153,7 @@ export const CORE_EVENT_NAMES = [
   "fallback_exposed",
   "detail_expanded",
   "voc_feedback_submitted",
+  "share_entry_personalized_shown",
 ] as const;
 
 export type CoreEventName = (typeof CORE_EVENT_NAMES)[number];

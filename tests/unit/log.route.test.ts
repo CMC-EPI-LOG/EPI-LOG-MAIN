@@ -1,17 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { dbConnectMock, findOneAndUpdateMock } = vi.hoisted(() => ({
+const { dbConnectMock, eventBulkWriteMock, sessionSummaryBulkWriteMock } = vi.hoisted(() => ({
   dbConnectMock: vi.fn(),
-  findOneAndUpdateMock: vi.fn(),
+  eventBulkWriteMock: vi.fn(),
+  sessionSummaryBulkWriteMock: vi.fn(),
 }));
 
 vi.mock('@/lib/mongoose', () => ({
   dbConnect: dbConnectMock,
 }));
 
-vi.mock('@/models/UserLog', () => ({
-  UserLog: {
-    findOneAndUpdate: findOneAndUpdateMock,
+vi.mock('@/models/EventLog', () => ({
+  EventLog: {
+    bulkWrite: eventBulkWriteMock,
+  },
+}));
+
+vi.mock('@/models/SessionSummary', () => ({
+  SessionSummary: {
+    bulkWrite: sessionSummaryBulkWriteMock,
   },
 }));
 
@@ -22,12 +29,13 @@ describe('/api/log route', () => {
 
   afterEach(() => {
     dbConnectMock.mockReset();
-    findOneAndUpdateMock.mockReset();
+    eventBulkWriteMock.mockReset();
+    sessionSummaryBulkWriteMock.mockReset();
     vi.restoreAllMocks();
     process.env.MONGODB_URI = originalMongoUri;
   });
 
-  it('session_id/event_name이 없으면 400을 반환한다', async () => {
+  it('payload가 유효하지 않으면 400을 반환한다', async () => {
     process.env.MONGODB_URI = 'mongodb://127.0.0.1:27017/test';
 
     const request = new Request('http://localhost/api/log', {
@@ -37,11 +45,14 @@ describe('/api/log route', () => {
     });
 
     const response = await POST(request);
-    const payload = (await response.json()) as { ok: boolean; error: string };
+    const payload = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string };
+    };
 
     expect(response.status).toBe(400);
     expect(payload.ok).toBe(false);
-    expect(payload.error).toContain('session_id and event_name');
+    expect(payload.error?.code).toBe('INVALID_PAYLOAD');
   });
 
   it('MONGODB_URI가 없으면 저장을 건너뛰고 202를 반환한다', async () => {
@@ -64,33 +75,56 @@ describe('/api/log route', () => {
     expect(payload.ok).toBe(true);
     expect(payload.skipped).toBe(true);
     expect(dbConnectMock).not.toHaveBeenCalled();
-    expect(findOneAndUpdateMock).not.toHaveBeenCalled();
+    expect(eventBulkWriteMock).not.toHaveBeenCalled();
+    expect(sessionSummaryBulkWriteMock).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalled();
   });
 
-  it('MONGODB_URI가 있으면 로그를 upsert한다', async () => {
+  it('MONGODB_URI가 있으면 로그를 event/session 컬렉션으로 저장한다', async () => {
     process.env.MONGODB_URI = 'mongodb://127.0.0.1:27017/test';
     dbConnectMock.mockResolvedValue({});
-    findOneAndUpdateMock.mockResolvedValue({});
+    eventBulkWriteMock.mockResolvedValue({
+      upsertedIds: { 0: 'mock-id-0' },
+    });
+    sessionSummaryBulkWriteMock.mockResolvedValue({});
 
     const request = new Request('http://localhost/api/log', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        session_id: 'session-2',
-        source: 'ref-test',
-        shared_by: 'share-1',
-        event_name: 'landing_view',
-        metadata: { foo: 'bar' },
+        schema_version: '2.0.0',
+        events: [
+          {
+            event_id: 'evt-12345678',
+            schema_version: '2.0.0',
+            session_id: 'session-2',
+            event_name: 'landing_view',
+            client_ts: new Date().toISOString(),
+            entry_source: 'direct',
+            deployment_id: null,
+            toss_app_version: null,
+            route: '/',
+            source: 'ref-test',
+            shared_by: 'share-1',
+            metadata: { foo: 'bar' },
+          },
+        ],
       }),
     });
 
     const response = await POST(request);
-    const payload = (await response.json()) as { ok: boolean };
+    const payload = (await response.json()) as {
+      ok: boolean;
+      stored_count?: number;
+      deduped_count?: number;
+    };
 
     expect(response.status).toBe(200);
     expect(payload.ok).toBe(true);
+    expect(payload.stored_count).toBe(1);
+    expect(payload.deduped_count).toBe(0);
     expect(dbConnectMock).toHaveBeenCalledTimes(1);
-    expect(findOneAndUpdateMock).toHaveBeenCalledTimes(1);
+    expect(eventBulkWriteMock).toHaveBeenCalledTimes(1);
+    expect(sessionSummaryBulkWriteMock).toHaveBeenCalledTimes(1);
   });
 });

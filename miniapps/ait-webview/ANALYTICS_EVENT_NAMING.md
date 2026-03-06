@@ -37,6 +37,7 @@
 4. 위치 갱신: `location_changed`
 5. 콘텐츠 소비: `insight_opened`, `datagrid_opened`
 6. 공유: `share_clicked`
+7. 공유 진입 개인화 노출: `share_entry_personalized_shown`
 
 ## 4) UTM 어트리뷰션 규칙
 

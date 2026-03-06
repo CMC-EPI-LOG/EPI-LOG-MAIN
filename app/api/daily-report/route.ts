@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { buildReliabilityMeta, deriveDecisionSignals } from '@/lib/dailyReportDecision';
 import { corsHeaders } from '@/lib/cors';
+import { withApiObservability } from '@/lib/api-observability';
 import {
   buildStationCandidates,
   inferExpectedSido,
@@ -57,7 +58,7 @@ const UNKNOWN_STATION_SIGNATURE = {
 
 export const runtime = 'nodejs';
 
-export async function OPTIONS() {
+async function handleOptions() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
@@ -842,7 +843,7 @@ async function fetchAiDataWithRetry(
   throw lastError instanceof Error ? lastError : new Error('AI API retry attempts exhausted');
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   const requestStartedAt = Date.now();
   const timing: Record<string, number> = {};
 
@@ -1080,3 +1081,6 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const OPTIONS = withApiObservability('/api/daily-report', 'OPTIONS', handleOptions);
+export const POST = withApiObservability('/api/daily-report', 'POST', handlePost);

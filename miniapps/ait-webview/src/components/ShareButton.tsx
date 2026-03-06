@@ -8,6 +8,7 @@ import { useLogger } from '@/hooks/useLogger';
 import {
   buildMiniappDeepLink,
   buildTossShareMessage,
+  resolveShareOgImageUrl,
   resolveMiniappNameFromHostname,
 } from '@/lib/shareLink';
 
@@ -19,6 +20,8 @@ interface ShareButtonProps {
   reason?: string;
   isLoading?: boolean;
 }
+
+type GetTossShareLinkWithOg = (url: string, ogImageUrl?: string) => Promise<string>;
 
 function toSingleLine(value?: string) {
   if (!value) return '';
@@ -76,13 +79,16 @@ export default function ShareButton({
       try {
         const appName = resolveMiniappNameFromHostname(window.location.hostname);
         const deepLink = buildMiniappDeepLink(appName, share_id);
+        const ogImageUrl = resolveShareOgImageUrl();
         void logEvent('share_link_created', {
           share_id,
           share_type: 'toss_deeplink',
           deep_link: deepLink,
+          og_image_url: ogImageUrl,
         });
 
-        const tossLink = await getTossShareLink(deepLink);
+        const getTossShareLinkWithOg = getTossShareLink as unknown as GetTossShareLinkWithOg;
+        const tossLink = await getTossShareLinkWithOg(deepLink, ogImageUrl);
         const message = buildTossShareMessage({
           nickname,
           region,
