@@ -70,22 +70,22 @@
 
 ```mermaid
 flowchart LR
-  U[User] --> UI[Next.js Client]
-  UI --> S[Zustand Persist Store]
-  UI --> DR[/api/daily-report]
-  UI --> RG[/api/reverse-geocode]
-  UI --> AL[/api/air-quality-latest]
-  UI --> CR[/api/clothing-recommendation]
-  UI --> WF[/api/weather-forecast]
-  DR --> AIR[(Data API / air-quality)]
-  DR --> AI[(AI API / advice)]
-  RG --> KAKAO[(Kakao coord2region)]
-  CR --> AI
-  UI --> LOG[/api/log]
-  LOG --> MDB[(MongoDB)]
-  WF --> WDB[(MongoDB weather_forecast)]
-  UI --> GA[(GA4)]
-  UI --> SEN[(Sentry)]
+  U["User"] --> UI["Next.js Client"];
+  UI --> S["Zustand Persist Store"];
+  UI --> DR["/api/daily-report"];
+  UI --> RG["/api/reverse-geocode"];
+  UI --> AL["/api/air-quality-latest"];
+  UI --> CR["/api/clothing-recommendation"];
+  UI --> WF["/api/weather-forecast"];
+  DR --> AIR["Data API / air-quality"];
+  DR --> AI["AI API / advice"];
+  RG --> KAKAO["Kakao coord2region"];
+  CR --> AI;
+  UI --> LOG["/api/log"];
+  LOG --> MDB["MongoDB"];
+  WF --> WDB["MongoDB weather_forecast"];
+  UI --> GA["GA4"];
+  UI --> SEN["Sentry"];
 ```
 
 ## 4. API 엔드포인트 (웹 루트)
