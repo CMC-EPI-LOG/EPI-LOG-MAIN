@@ -3,7 +3,7 @@
 대기질과 사용자 프로필(연령/질환)을 결합해 아이 활동 가이드를 제공하는 서비스입니다.  
 이 저장소는 **웹 PWA(Next.js)** 와 **Apps in Toss 미니앱(Vite)** 을 함께 관리합니다.
 
-> 이 문서는 **2026-03-04 기준 코드 상태**를 반영합니다.
+> 이 문서는 **2026-03-06 기준 코드 상태**를 반영합니다.
 
 ## 1. 프로젝트 구성
 
@@ -20,7 +20,8 @@
 3. `/api/daily-report`로 대기질 + AI 가이드를 병렬 조회
 4. UI 카드(히어로/행동 체크리스트/근거/수치)를 표시
 5. 백그라운드에서 `/api/air-quality-latest`를 60초 주기로 갱신
-6. 공유/설치/로그 이벤트를 수집
+6. 옷차림 모달 오픈 시 `/api/weather-forecast`로 48시간 예보를 조회
+7. 공유/설치/로그 이벤트를 수집
 
 ### 2.2 의사결정 규칙
 
@@ -40,20 +41,29 @@
 - `STATION_FALLBACK`: 인근 측정소 자동 보정
 - `DEGRADED`: 실측 매칭 실패로 대체 데이터 사용
 
-### 2.4 UI/UX
+### 2.4 AI 타임아웃/재시도/복구
+
+- 1차 AI 호출 타임아웃 기본값은 6500ms
+- 재시도는 기본 2회(총 3회 시도), 재시도 타임아웃 기본값 1600ms
+- 재시도 백오프는 제곱 증가(기본 150ms, 600ms, ...)
+- `timeout`, 네트워크 오류, `408/429/5xx`는 재시도 대상으로 처리
+- 실시간 AI 응답 실패 시 최근 캐시(stale, 기본 30분)로 복구 시도
+
+### 2.5 UI/UX
 
 - Hero + 체크리스트 + 근거 Drawer + 실시간 수치 DataGrid
 - 질환 복수 선택 + 사용자 직접 입력(최대 5개) 지원
 - 옷차림 추천 모달(웹): `/api/clothing-recommendation` + 실패 시 서버 폴백
+- 옷차림 모달에서 48시간 날씨(`/api/weather-forecast`) 함께 표시
 - 지연 데이터 배지 및 수동 재조회 버튼
 - Web Share API 우선, 미지원 시 클립보드 복사
 - 비-TOSS 환경에서만 PWA 설치 코치 노출
 
-### 2.5 계측/로그
+### 2.6 계측/로그
 
 - GA4 페이지뷰 및 코어 이벤트(`location_changed`, `profile_changed`, `share_clicked`, `retry_clicked` 등)
 - UTM 저장/전파
-- `session_end`(beacon) 포함 사용자 이벤트를 `/api/log`로 저장(MongoDB)
+- `session_end`(beacon) 포함 사용자 이벤트를 `/api/log`로 적재(미설정 시 skip)
 - Sentry 태그/컨텍스트 연동(측정소, 신뢰성 상태, 프로필)
 
 ## 3. 웹 아키텍처(요약)
@@ -66,12 +76,14 @@ flowchart LR
   UI --> RG[/api/reverse-geocode]
   UI --> AL[/api/air-quality-latest]
   UI --> CR[/api/clothing-recommendation]
+  UI --> WF[/api/weather-forecast]
   DR --> AIR[(Data API / air-quality)]
   DR --> AI[(AI API / advice)]
   RG --> KAKAO[(Kakao coord2region)]
   CR --> AI
   UI --> LOG[/api/log]
   LOG --> MDB[(MongoDB)]
+  WF --> WDB[(MongoDB weather_forecast)]
   UI --> GA[(GA4)]
   UI --> SEN[(Sentry)]
 ```
@@ -92,8 +104,12 @@ flowchart LR
 - `POST /api/reverse-geocode`
 - 좌표 -> 주소/표시지역/측정소 후보 변환 (Kakao API)
 
+- `GET /api/weather-forecast?stationName=...`
+- MongoDB(`weather_forecast.weather_forecast_data`) 기반 48시간 예보 반환
+
 - `POST /api/log`
-- 세션 단위 사용자 이벤트 적재(MongoDB upsert)
+- 세션 단위 사용자 이벤트 적재(V2 batch + legacy 단건 지원)
+- `MONGODB_URI` 미설정 시 `202` + `skipped=true`로 수집만 스킵
 
 더 자세한 스펙은 [API_GUIDE.md](./API_GUIDE.md) 참고.
 
@@ -125,13 +141,38 @@ flowchart LR
 - `NEXT_PUBLIC_KAKAO_JS_KEY`
 - `NEXT_PUBLIC_SITE_URL`
 - `NEXT_PUBLIC_GA_ID` 또는 `NEXT_PUBLIC_GA4_ID`
+- `NEXT_PUBLIC_SENTRY_DSN` (권장)
 - `MONGODB_URI`
 - `MONGODB_DB` (옵션)
 - `NEXT_PUBLIC_PLATFORM` (`TOSS`일 때 공유/PWA 설치 UI 일부 비노출)
+- `DAILY_REPORT_AI_TIMEOUT_MS`
+- `DAILY_REPORT_AI_PRIMARY_RETRY_COUNT`
+- `DAILY_REPORT_AI_PRIMARY_RETRY_TIMEOUT_MS`
+- `DAILY_REPORT_AI_PRIMARY_RETRY_BACKOFF_MS`
+- `DAILY_REPORT_AI_RETRY_TIMEOUT_MS`
+- `DAILY_REPORT_AI_CACHE_TTL_MS`
+- `DAILY_REPORT_AI_CACHE_MAX_ENTRIES`
+- `DAILY_REPORT_AI_CACHE_STALE_MS`
+- `DAILY_REPORT_AIR_TIMEOUT_MS`
+- `DAILY_REPORT_AIR_TOTAL_BUDGET_MS`
+- `DAILY_REPORT_AIR_MAX_CANDIDATES`
+- `DAILY_REPORT_AIR_CACHE_TTL_MS`
+- `DAILY_REPORT_AIR_CACHE_MAX_ENTRIES`
+- `DAILY_REPORT_AIR_CACHE_STALE_MS`
+- `LOG_ALERT_WINDOW_MS`
+- `LOG_ALERT_MAX_5XX_RATE`
+- `LOG_ALERT_MIN_REQUESTS_5XX`
+- `LOG_ALERT_MAX_DROP_RATE`
+- `LOG_ALERT_MIN_EVENTS_DROP`
+- `LOG_ALERT_MAX_FALLBACK_EXPOSED_RATIO`
+- `LOG_ALERT_MIN_PAGEVIEWS_FALLBACK`
+- `LOG_ALERT_MAX_SHARE_FAILURE_RATIO`
+- `LOG_ALERT_MIN_SHARE_ATTEMPTS`
 
 ### 6.2 미니앱(`miniapps/ait-webview`)
 
 - `VITE_GA_ID`
+- `VITE_API_BASE` (웹 BFF 베이스 URL)
 - `VITE_SENTRY_DSN`
 - `VITE_SENTRY_ENVIRONMENT`
 - `VITE_SENTRY_RELEASE`
@@ -149,10 +190,12 @@ npm run dev
 기타 명령:
 
 - `npm run build`
+- `npm run start`
 - `npm run lint`
 - `npm run test:unit`
 - `npm run test:e2e`
 - `npm run test:e2e:ui`
+- `npm run test:e2e:ci`
 
 ### 7.2 미니앱
 
@@ -170,7 +213,7 @@ npm run dev
 
 ## 8. 테스트/검증
 
-- 단위 테스트: 의사결정 로직, 측정소 후보 보정, 의류 추천 route, 미니앱 헬퍼 로직
+- 단위 테스트: 의사결정 로직, 측정소 후보 보정, 일일 리포트 재시도, 의류 추천 route, 로그 적재 route, 미니앱 헬퍼 로직
 - E2E 테스트: 핵심 대시보드 흐름, 로딩/실패 복구, 프로필/위치 갱신, 공유 CTA, 근거/신뢰성 UI
 - CSV 계약 시나리오 검증: `tests/e2e/decision-csv.spec.ts`에서 `tests/fixtures/decision-data.csv` 순회
 
@@ -189,7 +232,8 @@ node scripts/nationwide-reliability-smoke.mjs \
 - `next-pwa`는 개발환경에서 비활성화, 프로덕션에서 Service Worker 생성
 - Sentry는 Next.js(`withSentryConfig`)와 미니앱(`@sentry/browser`) 모두 구성
 - `/api/*` 라우트는 CORS 헤더를 반환
-- `/api/log`는 MongoDB 연결이 필요
+- `/api/log`는 MongoDB 미설정 시 `202(skipped)`로 응답하고 저장은 생략
+- `/api/weather-forecast`는 MongoDB(`weather_forecast`) 데이터 소스가 필요
 
 ## 10. 관련 문서
 
