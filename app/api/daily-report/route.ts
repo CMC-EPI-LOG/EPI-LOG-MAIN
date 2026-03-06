@@ -30,16 +30,17 @@ function parseNonNegativeIntEnv(value: string | undefined, fallback: number): nu
 
 const AI_BFF_CACHE_TTL_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACHE_TTL_MS, 5 * 60 * 1000);
 const AI_BFF_CACHE_MAX_ENTRIES = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACHE_MAX_ENTRIES, 200);
+const AI_BFF_CACHE_STALE_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_CACHE_STALE_MS, 30 * 60 * 1000);
 // Increase primary timeout to absorb frequent AI cold misses before fallbacking.
 const AI_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_TIMEOUT_MS, 6500);
-const AI_PRIMARY_RETRY_COUNT = parseNonNegativeIntEnv(process.env.DAILY_REPORT_AI_PRIMARY_RETRY_COUNT, 1);
+const AI_PRIMARY_RETRY_COUNT = parseNonNegativeIntEnv(process.env.DAILY_REPORT_AI_PRIMARY_RETRY_COUNT, 2);
 const AI_PRIMARY_RETRY_TIMEOUT_MS = parsePositiveIntEnv(
   process.env.DAILY_REPORT_AI_PRIMARY_RETRY_TIMEOUT_MS,
-  1200,
+  1600,
 );
 const AI_PRIMARY_RETRY_BACKOFF_MS = parseNonNegativeIntEnv(
   process.env.DAILY_REPORT_AI_PRIMARY_RETRY_BACKOFF_MS,
-  100,
+  150,
 );
 const AI_RETRY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_RETRY_TIMEOUT_MS, 900);
 const AIR_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_TIMEOUT_MS, 1200);
@@ -166,11 +167,12 @@ interface AiGuideView {
   no2_value?: number;
 }
 
-type AiCacheSource = 'api' | 'memory' | 'inflight';
+type AiCacheSource = 'api' | 'memory' | 'inflight' | 'stale';
 
 interface CachedAiGuideEntry {
   data: AiGuideView;
   expiresAt: number;
+  staleUntil: number;
 }
 
 interface AiFetchResult {
@@ -265,25 +267,36 @@ function setCachedAirFetch(cacheKey: string, data: AirFetchResult): void {
 
 function pruneExpiredAiCache(now = Date.now()): void {
   for (const [key, entry] of aiGuideCache) {
-    if (entry.expiresAt <= now) {
+    if (entry.staleUntil <= now) {
       aiGuideCache.delete(key);
     }
   }
 }
 
-function getCachedAiGuide(cacheKey: string): AiGuideView | null {
+function getCachedAiGuide(
+  cacheKey: string,
+  options?: { allowStale?: boolean },
+): { data: AiGuideView; source: 'memory' | 'stale' } | null {
+  const allowStale = options?.allowStale ?? false;
   pruneExpiredAiCache();
   const entry = aiGuideCache.get(cacheKey);
   if (!entry) return null;
-  if (entry.expiresAt <= Date.now()) {
+  const now = Date.now();
+  if (entry.staleUntil <= now) {
     aiGuideCache.delete(cacheKey);
+    return null;
+  }
+  if (!allowStale && entry.expiresAt <= now) {
     return null;
   }
 
   // Refresh insertion order for basic LRU behavior.
   aiGuideCache.delete(cacheKey);
   aiGuideCache.set(cacheKey, entry);
-  return entry.data;
+  return {
+    data: entry.data,
+    source: entry.expiresAt > now ? 'memory' : 'stale',
+  };
 }
 
 function isCacheableAiGuide(data: AiGuideView): boolean {
@@ -302,6 +315,7 @@ function setCachedAiGuide(cacheKey: string, data: AiGuideView): void {
   aiGuideCache.set(cacheKey, {
     data,
     expiresAt: now + AI_BFF_CACHE_TTL_MS,
+    staleUntil: now + AI_BFF_CACHE_STALE_MS,
   });
 
   while (aiGuideCache.size > AI_BFF_CACHE_MAX_ENTRIES) {
@@ -731,7 +745,7 @@ function isAiRetryableError(error: unknown): boolean {
 
   const statusCode = getAiStatusCodeFromError(error);
   if (statusCode == null) return false;
-  return statusCode === 429 || statusCode >= 500;
+  return statusCode === 408 || statusCode === 429 || statusCode >= 500;
 }
 
 function getAiStatusCodeFromError(error: unknown): number | null {
@@ -766,9 +780,9 @@ async function fetchAiData(
   const cached = getCachedAiGuide(cacheKey);
   if (cached) {
     return {
-      data: cached,
+      data: cached.data,
       cacheHit: true,
-      cacheSource: 'memory',
+      cacheSource: cached.source,
     };
   }
 
@@ -812,6 +826,7 @@ async function fetchAiDataWithRetry(
 ): Promise<AiFetchAttemptResult> {
   const maxAttempts = Math.max(1, options.retryCount + 1);
   let lastError: unknown;
+  const cacheKey = buildAiCacheKey(stationName, aiProfile);
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const timeoutMs = attempt === 0 ? options.primaryTimeoutMs : options.retryTimeoutMs;
@@ -826,10 +841,23 @@ async function fetchAiDataWithRetry(
       lastError = error;
       const canRetry = attempt < maxAttempts - 1 && isAiRetryableError(error);
       if (!canRetry) {
+        const stale = getCachedAiGuide(cacheKey, { allowStale: true });
+        if (stale?.source === 'stale') {
+          console.warn(
+            `[BFF] AI stale cache fallback: station=${stationName} `
+              + `ageGroup=${aiProfile.ageGroup} condition=${aiProfile.condition} reason=${String(error)}`,
+          );
+          return {
+            data: stale.data,
+            cacheHit: true,
+            cacheSource: 'stale',
+            attempts: attempt + 1,
+          };
+        }
         throw error;
       }
 
-      const backoffMs = options.retryBackoffMs * (attempt + 1);
+      const backoffMs = options.retryBackoffMs * (attempt + 1) * (attempt + 1);
       console.warn(
         `[BFF] AI primary retry scheduled: attempt=${attempt + 1} `
           + `timeoutMs=${options.retryTimeoutMs} backoffMs=${backoffMs} reason=${String(error)}`,
