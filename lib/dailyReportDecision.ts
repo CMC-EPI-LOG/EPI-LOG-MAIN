@@ -193,12 +193,13 @@ function applyWeatherAdjustment(
   const ageGroup = profile.ageGroup || 'elementary_low';
   const conditions = normalizeKnownConditions(profile);
 
-  if ((ageGroup === 'infant' || ageGroup === 'toddler') && humidity != null && humidity < 35) {
+  if (
+    (ageGroup === 'infant' || ageGroup === 'toddler' || ageGroup === 'elementary_low')
+    && temp != null
+    && (temp < 5 || temp > 30)
+  ) {
     adjusted += 1;
-    reasons.push('영유아 + 저습도(35% 미만)로 위험도를 1단계 상향했어요.');
-  } else if (ageGroup === 'elementary_low' && temp != null && (temp >= 30 || temp <= 2)) {
-    adjusted += 1;
-    reasons.push('초등 저학년 + 극단 기온으로 위험도를 1단계 상향했어요.');
+    reasons.push('영유아/초등 저학년 + 극단 기온으로 위험도를 1단계 상향했어요.');
   }
 
   if (conditions.includes('asthma') && temp != null && temp < 5) {

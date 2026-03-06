@@ -6,7 +6,9 @@ import {
   type AirQualityView,
   type AiGuideView,
   type ProfileInput,
-} from '../../lib/dailyReportDecision';
+  } from '../../lib/dailyReportDecision';
+import { getGradeBadgeColor, getGradeText } from '../../lib/colorUtils';
+import { getGradeCode } from '../../lib/characterUtils';
 
 function createAir(overrides: Partial<AirQualityView> = {}): AirQualityView {
   return {
@@ -127,6 +129,41 @@ describe('deriveDecisionSignals', () => {
     expect(result.decisionSignals.adjustedRiskGrade).toBe(4);
     expect(result.aiGuide.threeReason?.some((reason) => reason.includes('비염 + 건조'))).toBe(true);
     expect(result.aiGuide.threeReason?.some((reason) => reason.includes('천식 + 저온'))).toBe(true);
+  });
+
+  it('AI 서버와 동일하게 영유아/초등 저학년은 극단 기온에서 1단계 상향한다', () => {
+    const air = createAir({
+      pm25_value: 15,
+      o3_value: 0.031,
+      temp: -2.6,
+      humidity: 62,
+    });
+    const guide = createGuide();
+
+    const toddler = deriveDecisionSignals(air, guide, { ageGroup: 'toddler', condition: 'none' }, 11);
+    const elementaryLow = deriveDecisionSignals(air, guide, { ageGroup: 'elementary_low', condition: 'none' }, 11);
+    const elementaryHigh = deriveDecisionSignals(air, guide, { ageGroup: 'elementary_high', condition: 'none' }, 11);
+
+    expect(toddler.decisionSignals.finalGrade).toBe('BAD');
+    expect(toddler.decisionSignals.weatherAdjustmentReason).toContain('영유아/초등 저학년 + 극단 기온');
+    expect(elementaryLow.decisionSignals.finalGrade).toBe('BAD');
+    expect(elementaryLow.decisionSignals.weatherAdjustmentReason).toContain('영유아/초등 저학년 + 극단 기온');
+    expect(elementaryHigh.decisionSignals.finalGrade).toBe('NORMAL');
+    expect(elementaryHigh.decisionSignals.weatherAdjusted).toBe(false);
+  });
+
+  it('BAD 등급은 UI에서 VERY_BAD로 승격되지 않는다', () => {
+    const air = createAir({ pm25_value: 40, o3_value: 0.02, temp: 22, humidity: 45 });
+    const guide = createGuide();
+    const profile: ProfileInput = { ageGroup: 'elementary_high', condition: 'none' };
+
+    const result = deriveDecisionSignals(air, guide, profile, 11);
+
+    expect(result.decisionSignals.finalGrade).toBe('BAD');
+    expect(result.airData.grade).toBe('BAD');
+    expect(getGradeText(result.airData.grade)).toBe('나쁨');
+    expect(getGradeBadgeColor(result.airData.grade)).toBe('bg-orange-400');
+    expect(getGradeCode(result.airData.grade)).toBe('C');
   });
 });
 
