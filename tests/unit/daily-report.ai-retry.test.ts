@@ -81,7 +81,7 @@ describe('/api/daily-report ai retry', () => {
       const url = String(input);
 
       if (url.includes('/api/air-quality')) {
-        return createAirQualityResponse('강남구');
+        return createAirQualityResponse('성북구');
       }
 
       if (url.includes('/api/advice')) {
@@ -252,5 +252,75 @@ describe('/api/daily-report ai retry', () => {
     expect(aiCallCount).toBe(1);
     expect(payload.aiGuide.summary).toBe('종합 판단');
     expect(payload.aiGuide.detail).toContain('일치 데이터');
+  });
+
+  it('AI 업스트림 실패 시 stale 캐시 가이드를 사용해 복구한다', async () => {
+    const now = new Date('2026-03-06T00:00:00.000Z').getTime();
+    let nowOffsetMs = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => now + nowOffsetMs);
+
+    let aiCallCount = 0;
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url.includes('/api/air-quality')) {
+        return createAirQualityResponse('강남구');
+      }
+
+      if (url.includes('/api/advice')) {
+        aiCallCount += 1;
+        if (aiCallCount === 1) {
+          return createAdviceResponse('캐시 가능한 결정', '초기 성공 응답');
+        }
+        throw new Error('fetch failed');
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const createRequest = () => new Request('http://localhost/api/daily-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stationName: '성북구',
+        profile: { ageGroup: 'elementary_low', condition: 'none' },
+      }),
+    });
+
+    const first = await POST(createRequest());
+    const firstPayload = (await first.json()) as {
+      aiGuide: {
+        summary?: string;
+      };
+      reliability: {
+        aiStatus?: string;
+      };
+    };
+
+    expect(first.status).toBe(200);
+    expect(firstPayload.aiGuide.summary).toBe('캐시 가능한 결정');
+    expect(firstPayload.reliability.aiStatus).toBe('ok');
+
+    // Move time forward beyond in-memory TTL(5m) but within stale window(30m).
+    nowOffsetMs = 6 * 60 * 1000;
+
+    const second = await POST(createRequest());
+    const secondPayload = (await second.json()) as {
+      aiGuide: {
+        summary?: string;
+        detail?: string;
+      };
+      reliability: {
+        aiStatus?: string;
+      };
+    };
+
+    expect(second.status).toBe(200);
+    expect(secondPayload.aiGuide.summary).toBe('캐시 가능한 결정');
+    expect(secondPayload.aiGuide.detail).toContain('초기 성공 응답');
+    expect(secondPayload.reliability.aiStatus).toBe('ok');
+    // 1st call success + 2nd call retries(3 attempts with strengthened policy)
+    expect(aiCallCount).toBe(4);
   });
 });
