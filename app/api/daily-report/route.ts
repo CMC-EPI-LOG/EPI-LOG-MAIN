@@ -179,14 +179,20 @@ interface AiFetchResult {
   data: AiGuideView;
   cacheHit: boolean;
   cacheSource: AiCacheSource;
+  contentRecovered: boolean;
 }
 
 interface AiFetchAttemptResult extends AiFetchResult {
   attempts: number;
 }
 
+interface AiApiGuideResult {
+  data: AiGuideView;
+  contentRecovered: boolean;
+}
+
 const aiGuideCache = new Map<string, CachedAiGuideEntry>();
-const aiGuideInFlight = new Map<string, Promise<AiGuideView>>();
+const aiGuideInFlight = new Map<string, Promise<AiApiGuideResult>>();
 const airFetchCache = new Map<string, CachedAirFetchEntry>();
 const airFetchInFlight = new Map<string, Promise<AirFetchResult>>();
 
@@ -210,6 +216,77 @@ function buildAiCacheKey(stationName: string, aiProfile: { ageGroup: string; con
     aiProfile.ageGroup.trim().toLowerCase(),
     aiProfile.condition.trim().toLowerCase(),
   ].join('|');
+}
+
+const AI_PARTIAL_FALLBACK_MARKERS = [
+  '일시적인 오류로 상세 설명을 불러오지 못했습니다',
+  '일시적인 오류로 상세 분석을 불러오지 못했습니다',
+  '하지만 행동 지침은 위와 같이 준수해주세요',
+  '문제가 지속되면 관리자에게 문의하세요',
+] as const;
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+}
+
+function isAiPartialFallbackText(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  return AI_PARTIAL_FALLBACK_MARKERS.some((marker) => value.includes(marker));
+}
+
+function hasAiPartialFallback(raw: Record<string, unknown>): boolean {
+  const detailCandidates = [raw.reason, raw.detail_answer, raw.detailAnswer];
+  if (detailCandidates.some((candidate) => isAiPartialFallbackText(candidate))) {
+    return true;
+  }
+
+  return toStringArray(raw.three_reason).some((item) => isAiPartialFallbackText(item));
+}
+
+function buildAiMetricReason(raw: Record<string, unknown>): string | null {
+  const metricParts: string[] = [];
+
+  if (typeof raw.pm25_value === 'number') metricParts.push(`초미세먼지 ${raw.pm25_value}ug/m3`);
+  if (typeof raw.pm10_value === 'number') metricParts.push(`미세먼지 ${raw.pm10_value}ug/m3`);
+  if (typeof raw.o3_value === 'number') metricParts.push(`오존 ${raw.o3_value}ppm`);
+  if (typeof raw.no2_value === 'number') metricParts.push(`이산화질소 ${raw.no2_value}ppm`);
+
+  if (metricParts.length === 0) return null;
+  return `${metricParts.join(', ')} 기준으로 판단했어요.`;
+}
+
+function recoverAiGuideFromPartialFallback(
+  raw: Record<string, unknown>,
+  base: Omit<AiGuideView, 'detail' | 'threeReason' | 'detailAnswer'>,
+): AiGuideView {
+  const reasonItems: string[] = [];
+
+  if (typeof base.csvReason === 'string' && base.csvReason.trim()) {
+    reasonItems.push(base.csvReason.trim());
+  }
+
+  const metricReason = buildAiMetricReason(raw);
+  if (metricReason) {
+    reasonItems.push(metricReason);
+  }
+
+  const actionItems = Array.isArray(base.actionItems) ? base.actionItems.filter(Boolean) : [];
+  if (actionItems.length > 0) {
+    reasonItems.push(`우선 ${actionItems.slice(0, 2).join(', ')}부터 챙겨주세요.`);
+  }
+
+  if (reasonItems.length === 0) {
+    reasonItems.push('현재 대기질 수치와 사용자 프로필을 함께 반영해 안내했어요.');
+  }
+
+  const detailAnswer = reasonItems.join(' ');
+  return {
+    ...base,
+    detail: detailAnswer,
+    detailAnswer,
+    threeReason: reasonItems.slice(0, 3),
+  };
 }
 
 function buildAirCacheKey(stationName: string): string {
@@ -304,6 +381,8 @@ function isCacheableAiGuide(data: AiGuideView): boolean {
   const detail = data.detail || '';
   if (summary.includes('설정 오류') || detail.includes('설정 오류')) return false;
   if (summary.includes('잠시 쉬고') || detail.includes('잠시 쉬고')) return false;
+  if (isAiPartialFallbackText(detail)) return false;
+  if ((data.threeReason || []).some((reason) => isAiPartialFallbackText(reason))) return false;
   return true;
 }
 
@@ -661,7 +740,7 @@ async function fetchAiDataFromApi(
   stationName: string,
   aiProfile: { ageGroup: string; condition: string },
   timeoutMs: number,
-): Promise<AiGuideView> {
+): Promise<AiApiGuideResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -711,19 +790,19 @@ async function fetchAiDataFromApi(
   ) {
     console.error('[BFF] AI Business Logic Error:', raw.reason);
     return {
-      summary: 'AI 서버 설정 오류가 발생했어요 😅',
-      detail: '백엔드 OpenAI 모델 설정(Temperature)을 확인해주세요.',
-      maskRecommendation: '확인 필요',
-      activityRecommendation: '확인 필요',
-    } satisfies AiGuideView;
+      data: {
+        summary: 'AI 서버 설정 오류가 발생했어요 😅',
+        detail: '백엔드 OpenAI 모델 설정(Temperature)을 확인해주세요.',
+        maskRecommendation: '확인 필요',
+        activityRecommendation: '확인 필요',
+      } satisfies AiGuideView,
+      contentRecovered: false,
+    };
   }
 
-  return {
+  const baseGuide = {
     summary: typeof raw.decision === 'string' ? raw.decision : '오늘의 가이드를 준비 중이에요.',
     csvReason,
-    detail: detailText,
-    threeReason: Array.isArray(raw.three_reason) ? (raw.three_reason as string[]) : [],
-    detailAnswer,
     actionItems: Array.isArray(raw.actionItems) ? (raw.actionItems as string[]) : [],
     activityRecommendation: typeof raw.decision === 'string' ? raw.decision : '확인 필요',
     maskRecommendation: 'KF80 권장',
@@ -732,7 +811,28 @@ async function fetchAiDataFromApi(
     o3_value: typeof raw.o3_value === 'number' ? raw.o3_value : undefined,
     pm10_value: typeof raw.pm10_value === 'number' ? raw.pm10_value : undefined,
     no2_value: typeof raw.no2_value === 'number' ? raw.no2_value : undefined,
-  } satisfies AiGuideView;
+  } satisfies Omit<AiGuideView, 'detail' | 'threeReason' | 'detailAnswer'>;
+
+  if (hasAiPartialFallback(raw)) {
+    console.warn(
+      `[BFF] AI partial fallback detected: station=${stationName} `
+        + `ageGroup=${aiProfile.ageGroup} condition=${aiProfile.condition}`,
+    );
+    return {
+      data: recoverAiGuideFromPartialFallback(raw, baseGuide),
+      contentRecovered: true,
+    };
+  }
+
+  return {
+    data: {
+      ...baseGuide,
+      detail: detailText,
+      threeReason: toStringArray(raw.three_reason),
+      detailAnswer,
+    } satisfies AiGuideView,
+    contentRecovered: false,
+  };
 }
 
 function isAiRetryableError(error: unknown): boolean {
@@ -783,34 +883,39 @@ async function fetchAiData(
       data: cached.data,
       cacheHit: true,
       cacheSource: cached.source,
+      contentRecovered: false,
     };
   }
 
   const inFlight = aiGuideInFlight.get(cacheKey);
   if (inFlight) {
-    const data = await inFlight;
+    const result = await inFlight;
     return {
-      data,
+      data: result.data,
       cacheHit: true,
       cacheSource: 'inflight',
+      contentRecovered: result.contentRecovered,
     };
   }
 
   const requestPromise = fetchAiDataFromApi(stationName, aiProfile, timeoutMs)
-    .then((data) => {
-      setCachedAiGuide(cacheKey, data);
-      return data;
+    .then((result) => {
+      if (!result.contentRecovered) {
+        setCachedAiGuide(cacheKey, result.data);
+      }
+      return result;
     })
     .finally(() => {
       aiGuideInFlight.delete(cacheKey);
     });
 
   aiGuideInFlight.set(cacheKey, requestPromise);
-  const data = await requestPromise;
+  const result = await requestPromise;
   return {
-    data,
+    data: result.data,
     cacheHit: false,
     cacheSource: 'api',
+    contentRecovered: result.contentRecovered,
   };
 }
 
@@ -826,6 +931,7 @@ async function fetchAiDataWithRetry(
 ): Promise<AiFetchAttemptResult> {
   const maxAttempts = Math.max(1, options.retryCount + 1);
   let lastError: unknown;
+  let lastRecoveredContent: AiFetchResult | null = null;
   const cacheKey = buildAiCacheKey(stationName, aiProfile);
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -833,6 +939,22 @@ async function fetchAiDataWithRetry(
 
     try {
       const fetched = await fetchAiData(stationName, aiProfile, timeoutMs);
+      if (fetched.contentRecovered) {
+        lastRecoveredContent = fetched;
+        const canRetryRecovered = attempt < maxAttempts - 1;
+        if (canRetryRecovered) {
+          const backoffMs = options.retryBackoffMs * (attempt + 1) * (attempt + 1);
+          console.warn(
+            `[BFF] AI partial fallback retry scheduled: attempt=${attempt + 1} `
+              + `timeoutMs=${options.retryTimeoutMs} backoffMs=${backoffMs}`,
+          );
+          if (backoffMs > 0) {
+            await sleep(backoffMs);
+          }
+          continue;
+        }
+      }
+
       return {
         ...fetched,
         attempts: attempt + 1,
@@ -851,6 +973,13 @@ async function fetchAiDataWithRetry(
             data: stale.data,
             cacheHit: true,
             cacheSource: 'stale',
+            contentRecovered: false,
+            attempts: attempt + 1,
+          };
+        }
+        if (lastRecoveredContent) {
+          return {
+            ...lastRecoveredContent,
             attempts: attempt + 1,
           };
         }
@@ -866,6 +995,13 @@ async function fetchAiDataWithRetry(
         await sleep(backoffMs);
       }
     }
+  }
+
+  if (lastRecoveredContent) {
+    return {
+      ...lastRecoveredContent,
+      attempts: maxAttempts,
+    };
   }
 
   throw lastError instanceof Error ? lastError : new Error('AI API retry attempts exhausted');
@@ -967,7 +1103,8 @@ async function handlePost(request: Request) {
     let aiRetrySignatureCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
 
     let aiData: AiGuideView | null = aiSettled.status === 'fulfilled' ? aiSettled.value.data : null;
-    let aiOk = aiSettled.status === 'fulfilled';
+    let aiContentRecovered = aiSettled.status === 'fulfilled' ? aiSettled.value.contentRecovered : false;
+    let aiOk = aiSettled.status === 'fulfilled' && !aiContentRecovered;
     const aiPrimaryError = aiSettled.status === 'rejected' ? aiSettled.reason : null;
     const aiPrimaryNonRetryableClientError = isAiNonRetryableClientError(aiPrimaryError);
     if (aiSettled.status !== 'fulfilled') {
@@ -995,11 +1132,12 @@ async function handlePost(request: Request) {
       try {
         const retriedAi = await fetchAiData(airFetch.resolvedStation, aiProfile, AI_RETRY_TIMEOUT_MS);
         aiData = retriedAi.data;
+        aiContentRecovered = retriedAi.contentRecovered;
         aiRetryResolvedCache = {
           source: retriedAi.cacheSource,
           hit: retriedAi.cacheHit,
         };
-        aiOk = true;
+        aiOk = !aiContentRecovered;
       } catch (error) {
         console.error('[BFF] AI API Error(retry with resolved station):', error);
       } finally {
@@ -1024,8 +1162,9 @@ async function handlePost(request: Request) {
         };
         if (!isUnknownMetricSignature(retriedAi.data)) {
           aiData = retriedAi.data;
+          aiContentRecovered = retriedAi.contentRecovered;
         }
-        aiOk = true;
+        aiOk = !aiContentRecovered;
       } catch (error) {
         console.error('[BFF] AI API Error(retry with unknown signature):', error);
       } finally {
@@ -1060,7 +1199,7 @@ async function handlePost(request: Request) {
     const timingLog = formatTimingLog(timing);
     const serverTiming = buildServerTimingHeader(timing);
     const aiCacheLog = [
-      `primary=${formatAiCacheState(aiPrimaryCache)} attempts=${aiPrimaryAttempts}`,
+      `primary=${formatAiCacheState(aiPrimaryCache)} attempts=${aiPrimaryAttempts} recovered=${aiContentRecovered}`,
       `retryResolved=${formatAiCacheState(aiRetryResolvedCache)}`,
       `retrySignature=${formatAiCacheState(aiRetrySignatureCache)}`,
     ].join(' ');
