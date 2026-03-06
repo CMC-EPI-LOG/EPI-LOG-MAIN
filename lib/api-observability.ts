@@ -85,11 +85,8 @@ function withRequestIdHeader(response: Response, requestId: string): Response {
 export function withApiObservability(route: string, method: string, handler: ApiHandler): ApiHandler {
   return async (request: Request) => {
     const requestId = request.headers.get('x-request-id') || randomUUID();
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set('x-request-id', requestId);
-    const observedRequest = new Request(request, { headers: requestHeaders });
     const startedAt = Date.now();
-    const url = new URL(observedRequest.url);
+    const url = new URL(request.url);
     const path = url.pathname;
 
     addSentryBreadcrumb({
@@ -110,7 +107,7 @@ export function withApiObservability(route: string, method: string, handler: Api
     });
 
     try {
-      const response = await handler(observedRequest);
+      const response = await handler(request);
       const durationMs = Date.now() - startedAt;
       const level = statusToLevel(response.status);
 
