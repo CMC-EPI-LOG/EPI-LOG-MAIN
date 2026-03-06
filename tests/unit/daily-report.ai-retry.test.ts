@@ -66,6 +66,32 @@ function createAdviceResponse(summary = '테스트 결정', detail = '테스트 
   );
 }
 
+function createPartialFallbackAdviceResponse(summary = '체육 전 상태 확인') {
+  return new Response(
+    JSON.stringify({
+      decision: summary,
+      csv_reason: '활동량이 폭증해 보통 수치도 영향받아요',
+      reason: '일시적인 오류로 상세 설명을 불러오지 못했습니다. 하지만 행동 지침은 위와 같이 준수해주세요.',
+      detail_answer: '일시적인 오류로 상세 설명을 불러오지 못했습니다. 하지만 행동 지침은 위와 같이 준수해주세요.',
+      three_reason: [
+        '일시적인 오류로 상세 분석을 불러오지 못했습니다.',
+        '하지만 **행동 지침**은 위와 같이 준수해주세요.',
+        '문제가 지속되면 **관리자**에게 문의하세요.',
+      ],
+      actionItems: ['중간 수분 섭취', '활동 후 양치', '대기질 수시 체크'],
+      references: [],
+      pm25_value: 34,
+      pm10_value: 42,
+      o3_value: 0.034,
+      no2_value: 0.013,
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    },
+  );
+}
+
 describe('/api/daily-report ai retry', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -322,5 +348,74 @@ describe('/api/daily-report ai retry', () => {
     expect(secondPayload.reliability.aiStatus).toBe('ok');
     // 1st call success + 2nd call retries(3 attempts with strengthened policy)
     expect(aiCallCount).toBe(4);
+  });
+
+  it('AI 부분 fallback 응답이면 detail/threeReason를 로컬 복구하고 failed로 표기한다', async () => {
+    let aiCallCount = 0;
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url.includes('/api/air-quality')) {
+        return createAirQualityResponse('서대문구');
+      }
+
+      if (url.includes('/api/advice')) {
+        aiCallCount += 1;
+        return createPartialFallbackAdviceResponse();
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const createRequest = () => new Request('http://localhost/api/daily-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stationName: '서대문구',
+        profile: { ageGroup: 'elementary_low', condition: 'none' },
+      }),
+    });
+
+    const first = await POST(createRequest());
+    const firstPayload = (await first.json()) as {
+      aiGuide: {
+        summary?: string;
+        detail?: string;
+        threeReason?: string[];
+      };
+      reliability: {
+        aiStatus?: string;
+      };
+    };
+
+    expect(first.status).toBe(200);
+    expect(aiCallCount).toBe(3);
+    expect(firstPayload.aiGuide.summary).toBe('체육 전 상태 확인');
+    expect(firstPayload.aiGuide.detail).toContain('활동량이 폭증해 보통 수치도 영향받아요');
+    expect(firstPayload.aiGuide.detail).toContain('우선 중간 수분 섭취, 활동 후 양치부터 챙겨주세요.');
+    expect(firstPayload.aiGuide.detail).not.toContain('일시적인 오류로 상세 설명');
+    expect(firstPayload.aiGuide.threeReason).toEqual([
+      '활동량이 폭증해 보통 수치도 영향받아요',
+      '초미세먼지 34ug/m3, 미세먼지 42ug/m3, 오존 0.034ppm, 이산화질소 0.013ppm 기준으로 판단했어요.',
+      '우선 중간 수분 섭취, 활동 후 양치부터 챙겨주세요.',
+    ]);
+    expect(firstPayload.reliability.aiStatus).toBe('failed');
+
+    const second = await POST(createRequest());
+    const secondPayload = (await second.json()) as {
+      aiGuide: {
+        detail?: string;
+      };
+      reliability: {
+        aiStatus?: string;
+      };
+    };
+
+    expect(second.status).toBe(200);
+    expect(aiCallCount).toBe(6);
+    expect(secondPayload.aiGuide.detail).toContain('활동량이 폭증해 보통 수치도 영향받아요');
+    expect(secondPayload.reliability.aiStatus).toBe('failed');
   });
 });
