@@ -123,6 +123,52 @@ export function normalizeSubregionName(name: string) {
     .replace(/^(.+?)\d+리$/, '$1리');
 }
 
+export function buildDirectStationCandidates(rawStation: string): string[] {
+  const cleaned = rawStation.trim().replace(/\s+/g, ' ');
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+
+  const add = (value?: string) => {
+    if (!value) return;
+    const normalized = value.trim().replace(/\s+/g, ' ');
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    candidates.push(normalized);
+  };
+
+  const tokens = cleaned.split(' ').filter(Boolean);
+  const lastToken = tokens.length > 0 ? tokens[tokens.length - 1] : undefined;
+  const prevToken = tokens.length > 1 ? tokens[tokens.length - 2] : undefined;
+
+  if (lastToken) {
+    add(normalizeSubregionName(lastToken));
+    add(normalizeDongName(lastToken));
+    add(lastToken);
+  }
+
+  if (prevToken && lastToken) {
+    add(`${prevToken} ${normalizeSubregionName(lastToken)}`);
+    add(`${prevToken} ${lastToken}`);
+  }
+
+  add(cleaned);
+  add(cleaned.replace(/\s+/g, ''));
+  add(normalizeDongName(cleaned));
+  add(normalizeSubregionName(cleaned));
+
+  for (const token of tokens) {
+    add(token);
+    add(normalizeDongName(token));
+    add(normalizeSubregionName(token));
+  }
+
+  if (tokens.length >= 2) {
+    add(tokens[tokens.length - 2]);
+  }
+
+  return candidates;
+}
+
 export function buildStationCandidates(rawStation: string): string[] {
   const cleaned = rawStation.trim().replace(/\s+/g, ' ');
   const seen = new Set<string>();
@@ -150,34 +196,10 @@ export function buildStationCandidates(rawStation: string): string[] {
   }
 
   const lastToken = tokens.length > 0 ? tokens[tokens.length - 1] : undefined;
-  const prevToken = tokens.length > 1 ? tokens[tokens.length - 2] : undefined;
 
   // 1차 매칭 성공률 향상을 위해 (힌트 -> 행정동 축약명) 순서로 우선 시도한다.
   matchedHints.forEach((hint) => add(hint));
-  if (lastToken) {
-    add(normalizeSubregionName(lastToken));
-    add(normalizeDongName(lastToken));
-    add(lastToken);
-  }
-  if (prevToken && lastToken) {
-    add(`${prevToken} ${normalizeSubregionName(lastToken)}`);
-    add(`${prevToken} ${lastToken}`);
-  }
-
-  add(cleaned);
-  add(cleaned.replace(/\s+/g, ''));
-  add(normalizeDongName(cleaned));
-  add(normalizeSubregionName(cleaned));
-
-  for (const token of tokens) {
-    add(token);
-    add(normalizeDongName(token));
-    add(normalizeSubregionName(token));
-  }
-
-  if (tokens.length >= 2) {
-    add(tokens[tokens.length - 2]);
-  }
+  buildDirectStationCandidates(cleaned).forEach((candidate) => add(candidate));
 
   return candidates;
 }

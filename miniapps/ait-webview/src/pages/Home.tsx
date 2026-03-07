@@ -1225,7 +1225,7 @@ export default function Home() {
         isForecastLoading={isForecastLoading}
         forecastItems={forecastData?.items}
         forecastStationName={
-          forecastData?.resolvedStation || data?.airQuality?.stationName || location.stationName
+          displayRegion || forecastData?.requestedStation || data?.airQuality?.stationName || location.stationName
         }
         onRefresh={handleRefreshClothingModal}
       />

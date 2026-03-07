@@ -3,6 +3,7 @@ import { dbConnect } from '@/lib/mongoose';
 import { corsHeaders } from '@/lib/cors';
 import { buildStationCandidates } from '@/lib/stationResolution';
 import { withApiObservability } from '@/lib/api-observability';
+import { resolveForecastStationName } from '@/lib/weatherForecastResolution';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -333,20 +334,14 @@ async function loadStationForecastDocs(stationName: string): Promise<{
     grouped.get(key)!.push(doc);
   }
 
-  let resolvedStation: string | null = null;
-  for (const candidate of triedStations) {
-    if ((grouped.get(candidate)?.length || 0) > 0) {
-      resolvedStation = candidate;
-      break;
-    }
-  }
-
-  if (!resolvedStation) {
-    const firstGroup = Array.from(grouped.entries()).sort(
-      (left, right) => right[1].length - left[1].length,
-    )[0];
-    resolvedStation = firstGroup ? firstGroup[0] : null;
-  }
+  const availableStations = Array.from(grouped.entries())
+    .sort((left, right) => right[1].length - left[1].length)
+    .map(([station]) => station);
+  const resolvedStation = resolveForecastStationName(
+    stationName,
+    triedStations,
+    availableStations,
+  );
 
   return {
     station: resolvedStation,
