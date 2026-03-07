@@ -484,13 +484,13 @@ export default function Home() {
         if (!prev) return prev;
 
         const baseGuide: AiGuideView = {
-          summary: prev.aiGuide?.summary || "확인 중...",
+          summary: prev.aiGuide?.summary || "",
           detail: prev.aiGuide?.detail || "",
           threeReason: prev.aiGuide?.threeReason || [],
           detailAnswer: prev.aiGuide?.detailAnswer || prev.aiGuide?.detail || "",
           actionItems: prev.aiGuide?.actionItems || [],
-          activityRecommendation: prev.aiGuide?.activityRecommendation || "확인 필요",
-          maskRecommendation: prev.aiGuide?.maskRecommendation || "확인 필요",
+          activityRecommendation: prev.aiGuide?.activityRecommendation || "",
+          maskRecommendation: prev.aiGuide?.maskRecommendation || "",
           references: prev.aiGuide?.references || [],
         };
 
@@ -742,9 +742,20 @@ export default function Home() {
     loadErrorKind === "timeout"
       ? "네트워크 상태를 확인하고 다시 시도해주세요."
       : "잠시 후 다시 시도해주세요.";
-  const isHeroLoading = isLoading || isLocationRefreshing || isProfileRefreshing;
-  const isProfileDataLoading = isProfileRefreshing;
-  const isClothingCardLoading = isProfileDataLoading || isClothingLoading;
+  const hasAirQualityData = Boolean(data?.airQuality);
+  const hasAiGuideData = Boolean(data?.aiGuide);
+  const hasShareData = Boolean(
+    data?.aiGuide?.summary || data?.aiGuide?.threeReason?.[0] || data?.aiGuide?.activityRecommendation,
+  );
+  const isCoreDataLoading = (isLoading && !data) || isLocationRefreshing || isProfileRefreshing;
+  const isHeroLoading = isCoreDataLoading;
+  const isProfileDataLoading = isCoreDataLoading;
+  const isClothingCardLoading = isCoreDataLoading || isClothingLoading;
+  const shouldRenderActionChecklist = isCoreDataLoading || hasAiGuideData;
+  const shouldRenderInsightDrawer = isCoreDataLoading || hasAiGuideData || hasAirQualityData;
+  const shouldRenderDataGrid = isCoreDataLoading || hasAiGuideData || hasAirQualityData;
+  const shouldRenderShareButton = isCoreDataLoading || hasShareData;
+  const shouldRenderClothingCard = isCoreDataLoading || hasAirQualityData || Boolean(clothingData);
   const refreshingMessage = isLocationRefreshing
     ? "새 주소 데이터로 업데이트 중..."
     : isProfileRefreshing
@@ -1078,7 +1089,7 @@ export default function Home() {
         <div className="grid grid-cols-2 gap-3 md:gap-4">
           <HeroCard
             character={characterPath}
-            decisionText={data?.aiGuide?.summary || "지금은 정보를 가져올 수 없어요 😢"}
+            decisionText={data?.aiGuide?.summary ?? ""}
             reasonText={data?.aiGuide?.csvReason}
             maskRecommendation={data?.aiGuide?.maskRecommendation}
             grade={data?.airQuality?.grade || "NORMAL"}
@@ -1102,14 +1113,16 @@ export default function Home() {
             }}
           />
 
-          <ActionChecklistCard
-            actionItems={data?.aiGuide?.actionItems || []}
-            delay={0.7}
-            grade={data?.airQuality?.grade}
-            isLoading={isProfileDataLoading}
-          />
+          {shouldRenderActionChecklist && (
+            <ActionChecklistCard
+              actionItems={data?.aiGuide?.actionItems ?? []}
+              delay={0.7}
+              grade={data?.airQuality?.grade}
+              isLoading={isProfileDataLoading}
+            />
+          )}
 
-          {(data?.airQuality || isClothingCardLoading) && (
+          {shouldRenderClothingCard && (
             <ClothingCard
               summary={clothingData?.summary}
               recommendation={clothingData?.recommendation}
@@ -1121,25 +1134,27 @@ export default function Home() {
             />
           )}
 
-          <InsightDrawer
-            threeReason={data?.aiGuide?.threeReason}
-            detailAnswer={data?.aiGuide?.detailAnswer}
-            reasoning={data?.aiGuide?.detail}
-            reliabilityLabel={data?.reliability?.label}
-            reliabilityDescription={data?.reliability?.description}
-            reliabilityUpdatedAt={reliabilityUpdatedAt}
-            measurementDataTime={measurementDataTime}
-            measurementRegion={measurementRegion}
-            decisionSignalChips={decisionSignalChips}
-            freshnessStatus={freshnessMeta.status === "UNKNOWN" ? undefined : freshnessMeta.status}
-            freshnessDescription={freshnessMeta.description}
-            onRefreshData={freshnessMeta.needsRefresh ? handleFreshnessRefresh : undefined}
-            isRefreshing={isRefreshing}
-            delay={1.0}
-            isLoading={isProfileDataLoading}
-          />
+          {shouldRenderInsightDrawer && (
+            <InsightDrawer
+              threeReason={data?.aiGuide?.threeReason}
+              detailAnswer={data?.aiGuide?.detailAnswer}
+              reasoning={data?.aiGuide?.detail}
+              reliabilityLabel={data?.reliability?.label}
+              reliabilityDescription={data?.reliability?.description}
+              reliabilityUpdatedAt={reliabilityUpdatedAt}
+              measurementDataTime={measurementDataTime}
+              measurementRegion={measurementRegion}
+              decisionSignalChips={decisionSignalChips}
+              freshnessStatus={freshnessMeta.status === "UNKNOWN" ? undefined : freshnessMeta.status}
+              freshnessDescription={freshnessMeta.description}
+              onRefreshData={freshnessMeta.needsRefresh ? handleFreshnessRefresh : undefined}
+              isRefreshing={isRefreshing}
+              delay={1.0}
+              isLoading={isProfileDataLoading}
+            />
+          )}
 
-          {(data?.airQuality || isProfileDataLoading) && (
+          {shouldRenderDataGrid && (
             <DataGrid
               data={{
                 pm25: data?.airQuality?.pm25_value || 0,
@@ -1165,7 +1180,7 @@ export default function Home() {
         </div>
       </div>
 
-      {(data || isProfileDataLoading) && (
+      {shouldRenderShareButton && (
         <div className="fixed bottom-2 left-4 right-4 mx-auto max-w-2xl pb-[calc(env(safe-area-inset-bottom)+0.2rem)]">
           <ShareButton
             nickname={profile?.nickname}
