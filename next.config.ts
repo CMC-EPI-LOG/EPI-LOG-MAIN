@@ -5,6 +5,21 @@ import { withSentryConfig } from "@sentry/nextjs";
 const config: NextConfig = {
   // Add other config options here if needed
   // Note: instrumentation.ts is automatically enabled in Next.js 13+
+  webpack: (webpackConfig, { isServer }) => {
+    if (isServer) {
+      webpackConfig.ignoreWarnings = [
+        ...(webpackConfig.ignoreWarnings ?? []),
+        {
+          module:
+            /@opentelemetry\/instrumentation\/build\/esm\/platform\/node\/instrumentation\.js$/,
+          message:
+            /Critical dependency: the request of a dependency is an expression/,
+        },
+      ];
+    }
+
+    return webpackConfig;
+  },
 };
 
 const sentryOrg = process.env.SENTRY_ORG;
