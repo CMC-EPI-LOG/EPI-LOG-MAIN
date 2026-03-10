@@ -3,13 +3,8 @@ import * as Sentry from '@sentry/nextjs';
 import { buildReliabilityMeta, deriveDecisionSignals } from '@/lib/dailyReportDecision';
 import { corsHeaders } from '@/lib/cors';
 import { withApiObservability } from '@/lib/api-observability';
-import {
-  buildStationCandidates,
-  inferExpectedSido,
-  isSidoMismatch,
-} from '@/lib/stationResolution';
-
-const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai.vercel.app';
+import { loadAirQualityFromMongo } from '@/lib/airQualityMongo';
+import { buildStationCandidates, inferExpectedSido } from '@/lib/stationResolution';
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
 const FALLBACK_TEMP = 22;
 const FALLBACK_HUMIDITY = 45;
@@ -43,8 +38,6 @@ const AI_PRIMARY_RETRY_BACKOFF_MS = parseNonNegativeIntEnv(
   150,
 );
 const AI_RETRY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_RETRY_TIMEOUT_MS, 900);
-const AIR_PRIMARY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_TIMEOUT_MS, 1200);
-const AIR_FETCH_TOTAL_BUDGET_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_TOTAL_BUDGET_MS, 2400);
 const AIR_FETCH_MAX_CANDIDATES = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_MAX_CANDIDATES, 6);
 const AIR_BFF_CACHE_TTL_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_CACHE_TTL_MS, 3 * 60 * 1000);
 const AIR_BFF_CACHE_MAX_ENTRIES = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_CACHE_MAX_ENTRIES, 200);
@@ -77,11 +70,16 @@ type KnownCondition = (typeof KNOWN_CONDITIONS)[number];
 interface AirQualityRaw {
   sidoName?: string;
   stationName?: string;
+  mang_name?: string | null;
   dataTime?: string;
   pm25_grade?: string;
   pm25_value?: number;
   pm10_grade?: string;
   pm10_value?: number;
+  pm25_value_24h?: number;
+  pm10_value_24h?: number;
+  pm10_grade_1h?: string;
+  pm25_grade_1h?: string;
   o3_grade?: string;
   o3_value?: number;
   no2_grade?: string;
@@ -90,6 +88,14 @@ interface AirQualityRaw {
   co_value?: number;
   so2_grade?: string;
   so2_value?: number;
+  khai_value?: number;
+  khai_grade?: string;
+  pm10_flag?: string | null;
+  pm25_flag?: string | null;
+  o3_flag?: string | null;
+  no2_flag?: string | null;
+  co_flag?: string | null;
+  so2_flag?: string | null;
   temp?: number;
   // Some data sources store temperature as `temperature` instead of `temp`.
   temperature?: number;
@@ -99,15 +105,28 @@ interface AirQualityRaw {
 interface AirQualityView {
   sidoName?: string | null;
   stationName: string;
+  mang_name?: string | null;
   dataTime?: string | null;
   grade: 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD';
   value?: number;
   pm25_value?: number;
   pm10_value?: number;
+  pm25_value_24h?: number;
+  pm10_value_24h?: number;
   o3_value?: number;
   no2_value?: number;
   co_value?: number;
   so2_value?: number;
+  khai_value?: number;
+  khai_grade?: string;
+  pm10_grade_1h?: string;
+  pm25_grade_1h?: string;
+  pm10_flag?: string | null;
+  pm25_flag?: string | null;
+  o3_flag?: string | null;
+  no2_flag?: string | null;
+  co_flag?: string | null;
+  so2_flag?: string | null;
   temp?: number;
   humidity?: number;
   detail: {
@@ -191,6 +210,24 @@ interface AiApiGuideResult {
   contentRecovered: boolean;
 }
 
+interface AiAirQualityContext {
+  source: 'mongo_airkorea_kma';
+  requestedStation: string;
+  resolvedStation: string;
+  resolvedFromFallbackCandidate: boolean;
+  sidoName?: string | null;
+  dataTime?: string | null;
+  grade?: AirQualityView['grade'];
+  pm25_value?: number;
+  pm10_value?: number;
+  o3_value?: number;
+  no2_value?: number;
+  co_value?: number;
+  so2_value?: number;
+  temp?: number;
+  humidity?: number;
+}
+
 const aiGuideCache = new Map<string, CachedAiGuideEntry>();
 const aiGuideInFlight = new Map<string, Promise<AiApiGuideResult>>();
 const airFetchCache = new Map<string, CachedAirFetchEntry>();
@@ -210,11 +247,34 @@ function buildServerTimingHeader(timing: Record<string, number>): string {
     .join(', ');
 }
 
-function buildAiCacheKey(stationName: string, aiProfile: { ageGroup: string; condition: string }): string {
+function buildAiAirContextFingerprint(airContext: AiAirQualityContext | null): string {
+  if (!airContext) return 'no-air-context';
+
+  return [
+    airContext.requestedStation.trim().toLowerCase(),
+    airContext.resolvedStation.trim().toLowerCase(),
+    airContext.dataTime ?? '',
+    airContext.pm25_value ?? '',
+    airContext.pm10_value ?? '',
+    airContext.o3_value ?? '',
+    airContext.no2_value ?? '',
+    airContext.co_value ?? '',
+    airContext.so2_value ?? '',
+    airContext.temp ?? '',
+    airContext.humidity ?? '',
+  ].join('|');
+}
+
+function buildAiCacheKey(
+  stationName: string,
+  aiProfile: { ageGroup: string; condition: string },
+  airContext: AiAirQualityContext | null,
+): string {
   return [
     stationName.trim().toLowerCase(),
     aiProfile.ageGroup.trim().toLowerCase(),
     aiProfile.condition.trim().toLowerCase(),
+    buildAiAirContextFingerprint(airContext),
   ].join('|');
 }
 
@@ -254,6 +314,154 @@ function buildAiMetricReason(raw: Record<string, unknown>): string | null {
 
   if (metricParts.length === 0) return null;
   return `${metricParts.join(', ')} 기준으로 판단했어요.`;
+}
+
+function buildAiAirContextSummary(airContext: AiAirQualityContext | null): string | undefined {
+  if (!airContext) return undefined;
+
+  const metricParts: string[] = [];
+  if (airContext.pm25_value != null) metricParts.push(`초미세먼지 ${airContext.pm25_value}ug/m3`);
+  if (airContext.pm10_value != null) metricParts.push(`미세먼지 ${airContext.pm10_value}ug/m3`);
+  if (airContext.o3_value != null) metricParts.push(`오존 ${airContext.o3_value}ppm`);
+  if (airContext.no2_value != null) metricParts.push(`이산화질소 ${airContext.no2_value}ppm`);
+  if (airContext.temp != null) metricParts.push(`기온 ${airContext.temp}도`);
+  if (airContext.humidity != null) metricParts.push(`습도 ${airContext.humidity}%`);
+
+  const location = airContext.resolvedStation !== airContext.requestedStation
+    ? `${airContext.requestedStation} 요청을 ${airContext.resolvedStation} 기준으로 보정`
+    : `${airContext.resolvedStation} 기준`;
+
+  const timestamp = airContext.dataTime ? `, 측정시각 ${airContext.dataTime}` : '';
+  return `${location}${timestamp}, ${metricParts.join(', ')}. 이 수치를 우선 기준으로 안내를 생성하세요.`;
+}
+
+function gradeLabel(grade: AirQualityView['grade']): string {
+  if (grade === 'GOOD') return '좋음';
+  if (grade === 'NORMAL') return '보통';
+  if (grade === 'BAD') return '나쁨';
+  return '매우 나쁨';
+}
+
+function buildConditionLabel(profile: ProfileInput): string {
+  const conditions = normalizeKnownConditions(profile).filter((condition) => condition !== 'none');
+  if (conditions.length === 0) return '일반';
+  if (conditions.includes('asthma')) return '천식';
+  if (conditions.includes('rhinitis')) return '비염';
+  if (conditions.includes('atopy')) return '아토피';
+  return '민감군';
+}
+
+function buildAuthoritativeActionItems(airData: AirQualityView, profile: ProfileInput): string[] {
+  const items: string[] = [];
+
+  if (airData.grade === 'GOOD') {
+    items.push('가벼운 외출은 가능하지만 귀가 후 손발 씻기를 챙기기');
+    items.push('점심 이후 오존이 오를 수 있어 장시간 야외 활동 전 수치 한 번 더 확인하기');
+  } else if (airData.grade === 'NORMAL') {
+    items.push('장시간 실외 활동은 줄이고 중간중간 실내에서 쉬기');
+    items.push('외출 후 세안과 코 주변 정리를 바로 하기');
+  } else if (airData.grade === 'BAD') {
+    items.push('실외 체육 대신 실내 활동을 우선 선택하기');
+    items.push('외출이 필요하면 KF80 이상 마스크를 착용하기');
+  } else {
+    items.push('불필요한 외출은 미루고 실내 중심으로 보내기');
+    items.push('문을 오래 열어두기보다 짧게 환기하고 실내 공기질을 관리하기');
+  }
+
+  if ((profile.ageGroup === 'infant' || profile.ageGroup === 'toddler') && !items.includes('실내 놀이 중심으로 활동 계획하기')) {
+    items.push('실내 놀이 중심으로 활동 계획하기');
+  }
+
+  if (profile.condition === 'rhinitis' && airData.humidity != null && airData.humidity < 40) {
+    items.push('실내가 건조하면 가습이나 보습을 함께 챙기기');
+  }
+
+  if (profile.condition === 'asthma' && airData.temp != null && airData.temp < 5) {
+    items.push('차가운 공기를 오래 마시지 않도록 외출 시간을 짧게 조절하기');
+  }
+
+  if (airData.temp != null && airData.temp < 5) {
+    items.push('추운 시간대에는 목도리나 겉옷으로 체온 유지하기');
+  }
+
+  return Array.from(new Set(items)).slice(0, 3);
+}
+
+function buildAuthoritativeAiGuide(
+  airData: AirQualityView,
+  profile: ProfileInput,
+  existingGuide?: AiGuideView | null,
+): AiGuideView {
+  const gradeText = gradeLabel(airData.grade);
+  const conditionText = buildConditionLabel(profile);
+  const metricParts: string[] = [];
+
+  if (airData.pm25_value != null) metricParts.push(`초미세먼지 ${airData.pm25_value}ug/m3`);
+  if (airData.pm10_value != null) metricParts.push(`미세먼지 ${airData.pm10_value}ug/m3`);
+  if (airData.o3_value != null) metricParts.push(`오존 ${airData.o3_value}ppm`);
+  if (airData.no2_value != null) metricParts.push(`이산화질소 ${airData.no2_value}ppm`);
+  if (airData.temp != null) metricParts.push(`기온 ${airData.temp}도`);
+  if (airData.humidity != null) metricParts.push(`습도 ${airData.humidity}%`);
+
+  let summary = '오늘은 비교적 편하게 외출할 수 있어요';
+  let activityRecommendation = '가벼운 실외 활동은 가능해요';
+  let maskRecommendation = '민감군이라면 마스크를 챙겨두세요';
+
+  if (airData.grade === 'NORMAL') {
+    summary = '오늘은 무리한 실외 활동만 조금 줄여주세요';
+    activityRecommendation = '짧은 실외 활동은 가능하지만 오래 머무르진 마세요';
+    maskRecommendation = '민감군은 KF80 마스크를 권장해요';
+  } else if (airData.grade === 'BAD') {
+    summary = '오늘은 실외 활동을 줄이고 실내 중심으로 보내는 편이 안전해요';
+    activityRecommendation = '실외 체육보다 실내 활동을 추천해요';
+    maskRecommendation = 'KF80 이상 마스크를 권장해요';
+  } else if (airData.grade === 'VERY_BAD') {
+    summary = '오늘은 외출을 최대한 줄이고 실내에 머무르는 편이 안전해요';
+    activityRecommendation = '필수 외출 외에는 실내에 머무르는 편이 좋아요';
+    maskRecommendation = 'KF80 이상 마스크와 실내 공기질 관리가 필요해요';
+  }
+
+  const measuredAt = airData.dataTime ? `${airData.dataTime} 기준` : '최근 실측 기준';
+  const metricSummary = metricParts.length > 0 ? metricParts.join(', ') : '대기질 핵심 지표';
+  const detailAnswer =
+    `${measuredAt} ${airData.stationName}의 현재 수치는 ${metricSummary}입니다. `
+    + `이 값을 기준으로 보면 전체 위험도는 ${gradeText} 수준이며, ${conditionText} 프로필을 고려해 안내를 맞췄어요. `
+    + `${activityRecommendation}`;
+
+  const threeReason = [
+    `${airData.stationName} 현재 대기질은 ${gradeText} 수준이에요.`,
+    metricParts.length > 0 ? `${metricSummary} 기준으로 판단했어요.` : '현재 실측 수치를 기준으로 판단했어요.',
+    `${conditionText} 프로필을 고려해 행동 지침을 조정했어요.`,
+  ];
+
+  return {
+    ...existingGuide,
+    summary,
+    csvReason: `${airData.stationName} 현재 실측은 ${gradeText} 수준이에요.`,
+    detail: detailAnswer,
+    detailAnswer,
+    threeReason,
+    actionItems: buildAuthoritativeActionItems(airData, profile),
+    activityRecommendation,
+    maskRecommendation,
+    pm25_value: airData.pm25_value,
+    pm10_value: airData.pm10_value,
+    o3_value: airData.o3_value,
+    no2_value: airData.no2_value,
+  };
+}
+
+function synchronizeAiGuideMetrics(
+  aiGuide: AiGuideView,
+  airData: Pick<AirQualityView, 'pm25_value' | 'pm10_value' | 'o3_value' | 'no2_value'>,
+): AiGuideView {
+  return {
+    ...aiGuide,
+    pm25_value: airData.pm25_value ?? aiGuide.pm25_value,
+    pm10_value: airData.pm10_value ?? aiGuide.pm10_value,
+    o3_value: airData.o3_value ?? aiGuide.o3_value,
+    no2_value: airData.no2_value ?? aiGuide.no2_value,
+  };
 }
 
 function recoverAiGuideFromPartialFallback(
@@ -493,16 +701,6 @@ function normalizeProfileInput(profile?: ProfileInput): Required<Pick<ProfileInp
   };
 }
 
-function isUnknownStationSignature(data: AirQualityRaw | null): boolean {
-  if (!data) return false;
-  return (
-    Number(data.pm25_value) === UNKNOWN_STATION_SIGNATURE.pm25_value &&
-    Number(data.pm10_value) === UNKNOWN_STATION_SIGNATURE.pm10_value &&
-    Math.abs(Number(data.o3_value) - UNKNOWN_STATION_SIGNATURE.o3_value) < 0.000001 &&
-    Math.abs(Number(data.no2_value) - UNKNOWN_STATION_SIGNATURE.no2_value) < 0.000001
-  );
-}
-
 function isUnknownMetricSignature(
   data:
     | Pick<AirQualityRaw, 'pm25_value' | 'pm10_value' | 'o3_value' | 'no2_value'>
@@ -552,84 +750,31 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
   }
 
   const expectedSido = inferExpectedSido(stationName);
-  const fetchStartedAt = Date.now();
-  let fallbackResult: { data: AirQualityRaw; resolvedStation: string; candidate: string } | null = null;
-  const unknownSignatureCandidates: string[] = [];
+  const mongoResult = await loadAirQualityFromMongo(candidates, expectedSido);
+  if (mongoResult) {
+    const mongoData: AirQualityRaw = {
+      ...mongoResult.raw,
+      sidoName: mongoResult.raw.sidoName ?? undefined,
+      dataTime: mongoResult.raw.dataTime ?? undefined,
+    };
 
-  for (const candidate of candidates) {
-    const elapsed = Date.now() - fetchStartedAt;
-    if (elapsed >= AIR_FETCH_TOTAL_BUDGET_MS) {
-      console.warn(
-        `[BFF] Air fetch budget exceeded: budget=${AIR_FETCH_TOTAL_BUDGET_MS}ms tried=${candidate}`,
-      );
-      break;
-    }
-
-    const remainingBudgetMs = AIR_FETCH_TOTAL_BUDGET_MS - elapsed;
-    const timeoutMs = Math.max(200, Math.min(AIR_PRIMARY_TIMEOUT_MS, remainingBudgetMs));
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const response = await fetch(
-        `${DATA_API_URL}/api/air-quality?stationName=${encodeURIComponent(candidate)}`,
-        {
-          cache: 'no-store',
-          signal: controller.signal,
-        },
-      );
-
-      if (!response.ok) {
-        console.error('[BFF] Air API Failed:', response.status, response.statusText, `candidate=${candidate}`);
-        continue;
-      }
-
-      const parsed = (await response.json()) as AirQualityRaw;
-      const resolvedStationName = parsed.stationName || candidate;
-
-      if (isSidoMismatch(expectedSido, parsed.sidoName ?? null)) {
-        console.warn(
-          `[BFF] Sido mismatch for candidate "${candidate}" (expected=${expectedSido}, resolved=${parsed.sidoName}), skipping`,
-        );
-        continue;
-      }
-
-      if (!fallbackResult) {
-        fallbackResult = { data: parsed, resolvedStation: resolvedStationName, candidate };
-      }
-
-      if (isUnknownStationSignature(parsed)) {
-        unknownSignatureCandidates.push(candidate);
-        console.warn(`[BFF] Unknown station signature detected for "${candidate}", trying next candidate`);
-        continue;
-      }
-
-      return {
-        data: parsed,
-        resolvedStation: resolvedStationName,
-        triedStations: candidates,
-        usedFallbackCandidate: candidate !== candidates[0],
-        usedFallbackData: false,
-        unknownSignatureCandidates,
-      };
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.warn(`[BFF] Air API Timeout: candidate=${candidate} timeoutMs=${timeoutMs}`);
-      } else {
-        console.error('[BFF] Air API Error:', error, `candidate=${candidate}`);
-      }
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    return {
+      data: mongoData,
+      resolvedStation: mongoResult.resolvedStation,
+      triedStations: candidates,
+      usedFallbackCandidate: mongoResult.resolvedStation !== candidates[0],
+      usedFallbackData: mongoResult.usedFallbackData,
+      unknownSignatureCandidates: [],
+    };
   }
 
   return {
-    data: fallbackResult?.data || null,
-    resolvedStation: fallbackResult?.resolvedStation || stationName,
+    data: null,
+    resolvedStation: stationName,
     triedStations: candidates,
-    usedFallbackCandidate: Boolean(fallbackResult && fallbackResult.candidate !== candidates[0]),
-    usedFallbackData: Boolean(fallbackResult),
-    unknownSignatureCandidates,
+    usedFallbackCandidate: false,
+    usedFallbackData: false,
+    unknownSignatureCandidates: [],
   };
 }
 
@@ -716,15 +861,28 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
   return {
     sidoName: raw.sidoName ?? null,
     stationName: raw.stationName || fallbackStation,
+    mang_name: raw.mang_name ?? null,
     dataTime: raw.dataTime ?? null,
     grade: worstGrade === 4 ? 'VERY_BAD' : worstGrade === 3 ? 'BAD' : worstGrade === 2 ? 'NORMAL' : 'GOOD',
     value: raw.pm10_value,
     pm25_value: raw.pm25_value,
     pm10_value: raw.pm10_value,
+    pm25_value_24h: raw.pm25_value_24h,
+    pm10_value_24h: raw.pm10_value_24h,
     o3_value: raw.o3_value,
     no2_value: raw.no2_value,
     co_value: raw.co_value,
     so2_value: raw.so2_value,
+    khai_value: raw.khai_value,
+    khai_grade: raw.khai_grade,
+    pm10_grade_1h: raw.pm10_grade_1h,
+    pm25_grade_1h: raw.pm25_grade_1h,
+    pm10_flag: raw.pm10_flag ?? null,
+    pm25_flag: raw.pm25_flag ?? null,
+    o3_flag: raw.o3_flag ?? null,
+    no2_flag: raw.no2_flag ?? null,
+    co_flag: raw.co_flag ?? null,
+    so2_flag: raw.so2_flag ?? null,
     temp: raw.temp ?? raw.temperature ?? FALLBACK_TEMP,
     humidity: raw.humidity ?? FALLBACK_HUMIDITY,
     detail: {
@@ -736,10 +894,37 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
   };
 }
 
+function buildAiAirContext(
+  requestedStation: string,
+  airFetch: AirFetchResult,
+  airData: AirQualityView,
+): AiAirQualityContext | null {
+  if (!airFetch.data) return null;
+
+  return {
+    source: 'mongo_airkorea_kma',
+    requestedStation,
+    resolvedStation: airFetch.resolvedStation,
+    resolvedFromFallbackCandidate: airFetch.usedFallbackCandidate,
+    sidoName: airData.sidoName ?? undefined,
+    dataTime: airData.dataTime ?? undefined,
+    grade: airData.grade,
+    pm25_value: airData.pm25_value,
+    pm10_value: airData.pm10_value,
+    o3_value: airData.o3_value,
+    no2_value: airData.no2_value,
+    co_value: airData.co_value,
+    so2_value: airData.so2_value,
+    temp: airData.temp,
+    humidity: airData.humidity,
+  };
+}
+
 async function fetchAiDataFromApi(
   stationName: string,
   aiProfile: { ageGroup: string; condition: string },
   timeoutMs: number,
+  airContext: AiAirQualityContext | null,
 ): Promise<AiApiGuideResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -754,6 +939,9 @@ async function fetchAiDataFromApi(
       body: JSON.stringify({
         stationName,
         userProfile: aiProfile,
+        currentAirQuality: airContext,
+        authoritativeAirQuality: airContext,
+        airQualitySummary: buildAiAirContextSummary(airContext),
       }),
       cache: 'no-store',
       signal: controller.signal,
@@ -859,12 +1047,6 @@ function getAiStatusCodeFromError(error: unknown): number | null {
   return statusCode;
 }
 
-function isAiNonRetryableClientError(error: unknown): boolean {
-  const statusCode = getAiStatusCodeFromError(error);
-  if (statusCode == null) return false;
-  return statusCode >= 400 && statusCode < 500 && statusCode !== 429;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -875,8 +1057,9 @@ async function fetchAiData(
   stationName: string,
   aiProfile: { ageGroup: string; condition: string },
   timeoutMs: number,
+  airContext: AiAirQualityContext | null,
 ): Promise<AiFetchResult> {
-  const cacheKey = buildAiCacheKey(stationName, aiProfile);
+  const cacheKey = buildAiCacheKey(stationName, aiProfile, airContext);
   const cached = getCachedAiGuide(cacheKey);
   if (cached) {
     return {
@@ -898,7 +1081,7 @@ async function fetchAiData(
     };
   }
 
-  const requestPromise = fetchAiDataFromApi(stationName, aiProfile, timeoutMs)
+  const requestPromise = fetchAiDataFromApi(stationName, aiProfile, timeoutMs, airContext)
     .then((result) => {
       if (!result.contentRecovered) {
         setCachedAiGuide(cacheKey, result.data);
@@ -922,6 +1105,7 @@ async function fetchAiData(
 async function fetchAiDataWithRetry(
   stationName: string,
   aiProfile: { ageGroup: string; condition: string },
+  airContext: AiAirQualityContext | null,
   options: {
     primaryTimeoutMs: number;
     retryTimeoutMs: number;
@@ -932,13 +1116,13 @@ async function fetchAiDataWithRetry(
   const maxAttempts = Math.max(1, options.retryCount + 1);
   let lastError: unknown;
   let lastRecoveredContent: AiFetchResult | null = null;
-  const cacheKey = buildAiCacheKey(stationName, aiProfile);
+  const cacheKey = buildAiCacheKey(stationName, aiProfile, airContext);
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const timeoutMs = attempt === 0 ? options.primaryTimeoutMs : options.retryTimeoutMs;
 
     try {
-      const fetched = await fetchAiData(stationName, aiProfile, timeoutMs);
+      const fetched = await fetchAiData(stationName, aiProfile, timeoutMs, airContext);
       if (fetched.contentRecovered) {
         lastRecoveredContent = fetched;
         const canRetryRecovered = attempt < maxAttempts - 1;
@@ -1035,142 +1219,103 @@ async function handlePost(request: Request) {
 
     console.log(`[BFF] Requested station: ${requestedStation}`);
     console.log('[BFF] AI Profile Payload:', aiProfile);
-    console.log(`[BFF] API targets: data=${DATA_API_URL} ai=${AI_API_URL}`);
+    console.log(`[BFF] API targets: ai=${AI_API_URL}`);
 
-    // P0: 병렬 호출로 지연 완화 (air/ai를 동시에 시작)
     const airFetchStartedAt = Date.now();
-    const aiPrimaryStartedAt = Date.now();
-    const [airSettled, aiSettled] = await Promise.allSettled([
-      fetchAirData(requestedStation).finally(() => {
-        timing.airFetchMs = Date.now() - airFetchStartedAt;
-      }),
-      fetchAiDataWithRetry(requestedStation, aiProfile, {
-        primaryTimeoutMs: AI_PRIMARY_TIMEOUT_MS,
-        retryTimeoutMs: AI_PRIMARY_RETRY_TIMEOUT_MS,
-        retryCount: AI_PRIMARY_RETRY_COUNT,
-        retryBackoffMs: AI_PRIMARY_RETRY_BACKOFF_MS,
-      }).finally(() => {
-        timing.aiPrimaryMs = Date.now() - aiPrimaryStartedAt;
-      }),
-    ]);
-
     let airPrimaryCache = { source: 'api', hit: false } as { source: AirCacheSource; hit: boolean };
-    if (airSettled.status === 'fulfilled') {
+    let airFetch: AirFetchResult = {
+      data: null,
+      resolvedStation: requestedStation,
+      triedStations: [requestedStation],
+      usedFallbackCandidate: false,
+      usedFallbackData: false,
+      unknownSignatureCandidates: [],
+    };
+
+    try {
+      const fetchedAir = await fetchAirData(requestedStation);
       airPrimaryCache = {
-        source: airSettled.value.cacheSource,
-        hit: airSettled.value.cacheHit,
+        source: fetchedAir.cacheSource,
+        hit: fetchedAir.cacheHit,
       };
-    }
-
-    const airFetch: AirFetchResult =
-      airSettled.status === 'fulfilled'
-        ? airSettled.value.data
-        : {
-            data: null,
-            resolvedStation: requestedStation,
-            triedStations: [requestedStation],
-            usedFallbackCandidate: false,
-            usedFallbackData: false,
-            unknownSignatureCandidates: [],
-          };
-
-    if (airSettled.status !== 'fulfilled') {
-      console.error('[BFF] Air fetch failed:', airSettled.reason);
+      airFetch = fetchedAir.data;
+    } catch (error) {
+      console.error('[BFF] Air fetch failed:', error);
       Sentry.withScope((scope) => {
         scope.setTag('fetch.phase', 'air');
         scope.setTag('station.requested', requestedStation);
         scope.setLevel('error');
-        scope.setExtra('reason', String(airSettled.reason));
+        scope.setExtra('reason', String(error));
         Sentry.captureException(
-          airSettled.reason instanceof Error ? airSettled.reason : new Error(String(airSettled.reason)),
+          error instanceof Error ? error : new Error(String(error)),
         );
       });
+    } finally {
+      timing.airFetchMs = Date.now() - airFetchStartedAt;
     }
 
     console.log('[BFF] Air station candidates:', airFetch.triedStations.join(' -> '));
-    console.log('[BFF] Resolved station for air/ai:', airFetch.resolvedStation);
+    console.log('[BFF] Resolved station for air:', airFetch.resolvedStation);
 
-    let aiPrimaryCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
-    let aiPrimaryAttempts = 1;
-    if (aiSettled.status === 'fulfilled') {
-      aiPrimaryCache = {
-        source: aiSettled.value.cacheSource,
-        hit: aiSettled.value.cacheHit,
-      };
-      aiPrimaryAttempts = aiSettled.value.attempts;
-    }
-    let aiRetryResolvedCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
-    let aiRetrySignatureCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
+    const airData = toViewAirData(airFetch.data, airFetch.resolvedStation);
+    const aiAirContext = buildAiAirContext(requestedStation, airFetch, airData);
+    const aiTargetStation = aiAirContext?.resolvedStation ?? requestedStation;
 
-    let aiData: AiGuideView | null = aiSettled.status === 'fulfilled' ? aiSettled.value.data : null;
-    let aiContentRecovered = aiSettled.status === 'fulfilled' ? aiSettled.value.contentRecovered : false;
-    let aiOk = aiSettled.status === 'fulfilled' && !aiContentRecovered;
-    const aiPrimaryError = aiSettled.status === 'rejected' ? aiSettled.reason : null;
-    const aiPrimaryNonRetryableClientError = isAiNonRetryableClientError(aiPrimaryError);
-    if (aiSettled.status !== 'fulfilled') {
-      console.error('[BFF] AI API Error(primary):', aiSettled.reason);
-      Sentry.withScope((scope) => {
-        scope.setTag('fetch.phase', 'ai_primary');
-        scope.setTag('station.requested', requestedStation);
-        scope.setLevel('error');
-        scope.setExtra('reason', String(aiSettled.reason));
-        Sentry.captureException(
-          aiSettled.reason instanceof Error ? aiSettled.reason : new Error(String(aiSettled.reason)),
-        );
-      });
-    }
-
-    const hasMetricMismatch = hasAiMetricMismatch(aiData, airFetch.data);
-    const shouldRetryResolvedStation =
-      airFetch.resolvedStation !== requestedStation
-      && !aiPrimaryNonRetryableClientError
-      && (!aiData || isUnknownMetricSignature(aiData) || hasMetricMismatch);
-
-    // 측정소 보정이 일어났고, primary 결과가 불확실할 때만 동일 측정소 기준으로 AI 재조회
-    if (shouldRetryResolvedStation) {
-      const aiRetryResolvedStartedAt = Date.now();
-      try {
-        const retriedAi = await fetchAiData(airFetch.resolvedStation, aiProfile, AI_RETRY_TIMEOUT_MS);
-        aiData = retriedAi.data;
-        aiContentRecovered = retriedAi.contentRecovered;
-        aiRetryResolvedCache = {
-          source: retriedAi.cacheSource,
-          hit: retriedAi.cacheHit,
-        };
-        aiOk = !aiContentRecovered;
-      } catch (error) {
-        console.error('[BFF] AI API Error(retry with resolved station):', error);
-      } finally {
-        timing.aiRetryResolvedMs = Date.now() - aiRetryResolvedStartedAt;
-      }
-    } else if (airFetch.resolvedStation !== requestedStation) {
+    if (aiAirContext) {
       console.log(
-        `[BFF] AI resolved-station retry skipped: requested=${requestedStation} resolved=${airFetch.resolvedStation} `
-          + `primaryNonRetryable4xx=${aiPrimaryNonRetryableClientError} hasAiData=${Boolean(aiData)} `
-          + `unknownSignature=${aiData ? isUnknownMetricSignature(aiData) : false} metricMismatch=${hasMetricMismatch}`,
+        '[BFF] AI authoritative air context:',
+        JSON.stringify({
+          requestedStation: aiAirContext.requestedStation,
+          resolvedStation: aiAirContext.resolvedStation,
+          dataTime: aiAirContext.dataTime,
+          pm25_value: aiAirContext.pm25_value,
+          pm10_value: aiAirContext.pm10_value,
+          o3_value: aiAirContext.o3_value,
+          no2_value: aiAirContext.no2_value,
+          temp: aiAirContext.temp,
+          humidity: aiAirContext.humidity,
+        }),
       );
     }
 
-    // 보정이 없더라도 AI 값이 기본 템플릿 시그니처면 동일 측정소로 1회 재시도
-    if (aiData && isUnknownMetricSignature(aiData)) {
-      const aiRetrySignatureStartedAt = Date.now();
-      try {
-        const retriedAi = await fetchAiData(airFetch.resolvedStation, aiProfile, AI_RETRY_TIMEOUT_MS);
-        aiRetrySignatureCache = {
-          source: retriedAi.cacheSource,
-          hit: retriedAi.cacheHit,
-        };
-        if (!isUnknownMetricSignature(retriedAi.data)) {
-          aiData = retriedAi.data;
-          aiContentRecovered = retriedAi.contentRecovered;
-        }
-        aiOk = !aiContentRecovered;
-      } catch (error) {
-        console.error('[BFF] AI API Error(retry with unknown signature):', error);
-      } finally {
-        timing.aiRetrySignatureMs = Date.now() - aiRetrySignatureStartedAt;
-      }
+    const aiPrimaryStartedAt = Date.now();
+    let aiPrimaryCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
+    let aiPrimaryAttempts = 1;
+    let aiData: AiGuideView | null = null;
+    let aiContentRecovered = false;
+
+    try {
+      const aiResult = await fetchAiDataWithRetry(aiTargetStation, aiProfile, aiAirContext, {
+        primaryTimeoutMs: AI_PRIMARY_TIMEOUT_MS,
+        retryTimeoutMs: AI_PRIMARY_RETRY_TIMEOUT_MS,
+        retryCount: AI_PRIMARY_RETRY_COUNT,
+        retryBackoffMs: AI_PRIMARY_RETRY_BACKOFF_MS,
+      });
+      aiPrimaryCache = {
+        source: aiResult.cacheSource,
+        hit: aiResult.cacheHit,
+      };
+      aiPrimaryAttempts = aiResult.attempts;
+      aiData = aiResult.data;
+      aiContentRecovered = aiResult.contentRecovered;
+    } catch (error) {
+      console.error('[BFF] AI API Error(primary):', error);
+      Sentry.withScope((scope) => {
+        scope.setTag('fetch.phase', 'ai_primary');
+        scope.setTag('station.requested', requestedStation);
+        scope.setTag('station.resolved', aiTargetStation);
+        scope.setLevel('error');
+        scope.setExtra('reason', String(error));
+        scope.setExtra('airContextFingerprint', buildAiAirContextFingerprint(aiAirContext));
+        Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+      });
+    } finally {
+      timing.aiPrimaryMs = Date.now() - aiPrimaryStartedAt;
     }
+
+    let aiOk = Boolean(aiData) && !aiContentRecovered;
+    let aiRetryResolvedCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
+    let aiRetrySignatureCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
 
     if (!aiData) {
       aiData = {
@@ -1179,13 +1324,32 @@ async function handlePost(request: Request) {
       };
     }
 
-    const airData = toViewAirData(airFetch.data, airFetch.resolvedStation);
-
     // Air 값이 없을 때 AI 숫자 데이터를 보강으로 사용
     if (airData.pm25_value == null && aiData.pm25_value != null) airData.pm25_value = aiData.pm25_value;
     if (airData.o3_value == null && aiData.o3_value != null) airData.o3_value = aiData.o3_value;
     if (airData.pm10_value == null && aiData.pm10_value != null) airData.pm10_value = aiData.pm10_value;
     if (airData.no2_value == null && aiData.no2_value != null) airData.no2_value = aiData.no2_value;
+
+    const hasMetricMismatch = hasAiMetricMismatch(aiData, airFetch.data);
+    const aiUnknownSignature = isUnknownMetricSignature(aiData);
+    const shouldUseAuthoritativeGuide =
+      Boolean(airFetch.data) && (!aiData || hasMetricMismatch || aiUnknownSignature || !aiOk);
+
+    if (shouldUseAuthoritativeGuide) {
+      console.warn(
+        `[BFF] AI guide overridden with authoritative air context: requested=${requestedStation} `
+          + `resolved=${aiTargetStation} hasAiData=${Boolean(aiData)} aiOk=${aiOk} `
+          + `metricMismatch=${hasMetricMismatch} unknownSignature=${aiUnknownSignature}`,
+      );
+      aiData = buildAuthoritativeAiGuide(airData, finalProfile, aiData);
+    }
+
+    if (hasMetricMismatch) {
+      console.warn(
+        `[BFF] AI metric mismatch corrected: requested=${requestedStation} resolved=${aiTargetStation}`,
+      );
+    }
+    aiData = synchronizeAiGuideMetrics(aiData, airData);
 
     const deriveStartedAt = Date.now();
     const derived = deriveDecisionSignals(airData, aiData, finalProfile);

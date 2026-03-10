@@ -1,7 +1,18 @@
 import { NextResponse } from 'next/server';
+import type { Filter } from 'mongodb';
 import { dbConnect } from '@/lib/mongoose';
 import { corsHeaders } from '@/lib/cors';
-import { buildStationCandidates } from '@/lib/stationResolution';
+import {
+  mapAirQualityForecastDocsToView,
+  type AirQualityForecastRawDoc,
+  type AirQualityForecastView,
+} from '@/lib/airQualityForecast';
+import {
+  mapLifestyleIndexDocsToView,
+  type LifestyleIndexRawDoc,
+  type LifestyleIndicesView,
+} from '@/lib/lifestyleIndices';
+import { buildStationCandidates, inferExpectedSido } from '@/lib/stationResolution';
 import { withApiObservability } from '@/lib/api-observability';
 import { resolveForecastStationName } from '@/lib/weatherForecastResolution';
 
@@ -13,6 +24,7 @@ const KST_OFFSET_MS = KST_OFFSET_HOURS * 60 * 60 * 1000;
 const FORECAST_WINDOW_HOURS = 48;
 
 interface WeatherForecastRawDoc {
+  sidoName?: string;
   stationName?: string;
   forecastDate?: string;
   forecastHour?: number | string;
@@ -44,6 +56,23 @@ interface WeatherForecastViewItem {
 
 interface WeatherForecastViewItemWithUpdatedAt extends WeatherForecastViewItem {
   updatedAtMs: number;
+}
+
+interface WeatherForecastResponse {
+  requestedStation: string;
+  resolvedStation: string | null;
+  triedStations: string[];
+  windowHours: number;
+  items: WeatherForecastViewItem[];
+  airQualityForecast: AirQualityForecastView | null;
+  lifestyleIndices: LifestyleIndicesView | null;
+  timestamp: string;
+}
+
+function toLifestyleRegionQuery(region: string | null) {
+  if (region === '경기남부' || region === '경기북부') return '경기';
+  if (region === '영서' || region === '영동') return '강원';
+  return region;
 }
 
 function parseNumeric(value: unknown): number | null {
@@ -250,10 +279,14 @@ async function loadStationForecastDocs(stationName: string): Promise<{
   triedStations: string[];
 }> {
   const triedStations = buildStationCandidates(stationName);
+  const expectedSido = inferExpectedSido(stationName);
   const conn = await dbConnect();
+  const forecastDbName = process.env.WEATHER_FORECAST_DB_NAME || 'weather_forecast';
+  const forecastCollectionName =
+    process.env.WEATHER_FORECAST_READER_COLLECTION || 'weather_forecast_data_shadow';
   const forecastCollection = conn.connection
-    .useDb('weather_forecast')
-    .collection<WeatherForecastRawDoc>('weather_forecast_data');
+    .useDb(forecastDbName)
+    .collection<WeatherForecastRawDoc>(forecastCollectionName);
 
   const now = new Date();
   const dateWindowStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -261,15 +294,29 @@ async function loadStationForecastDocs(stationName: string): Promise<{
   const startKey = toKstDateQueryKey(dateWindowStart);
   const endKey = toKstDateQueryKey(dateWindowEnd);
 
+  const stationQuery = (expectedSido
+    ? {
+        stationName: { $in: triedStations },
+        $or: [
+          { sidoName: expectedSido },
+          { sidoName: { $exists: false } },
+          { sidoName: null },
+        ],
+      }
+    : {
+        stationName: { $in: triedStations },
+      }) as unknown as Filter<WeatherForecastRawDoc>;
+
   let docs = await forecastCollection
     .find(
       {
-        stationName: { $in: triedStations },
+        ...stationQuery,
         forecastDate: { $gte: startKey, $lte: endKey },
-      },
+      } as Filter<WeatherForecastRawDoc>,
       {
         projection: {
           _id: 0,
+          sidoName: 1,
           stationName: 1,
           forecastDate: 1,
           forecastHour: 1,
@@ -294,12 +341,11 @@ async function loadStationForecastDocs(stationName: string): Promise<{
   if (docs.length === 0) {
     docs = await forecastCollection
       .find(
-        {
-          stationName: { $in: triedStations },
-        },
+        stationQuery,
         {
           projection: {
             _id: 0,
+            sidoName: 1,
             stationName: 1,
             forecastDate: 1,
             forecastHour: 1,
@@ -350,6 +396,96 @@ async function loadStationForecastDocs(stationName: string): Promise<{
   };
 }
 
+async function loadAirQualityForecastDocs(
+  requestedStation: string,
+  regionHint: string | null,
+): Promise<AirQualityForecastView | null> {
+  const conn = await dbConnect();
+  const airQualityDbName = process.env.AIRKOREA_DB_NAME || 'air_quality';
+  const forecastCollectionName =
+    process.env.AIRKOREA_FORECAST_READER_COLLECTION || 'air_quality_forecast_daily';
+  const forecastCollection = conn.connection
+    .useDb(airQualityDbName)
+    .collection<AirQualityForecastRawDoc>(forecastCollectionName);
+
+  const now = new Date();
+  const forecastStart = formatKstDate(now);
+  const forecastEnd = formatKstDate(new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000));
+  const docs = await forecastCollection
+    .find(
+      {
+        forecastDate: { $gte: forecastStart, $lte: forecastEnd },
+        informCode: { $in: ['PM10', 'PM25'] },
+      } as Filter<AirQualityForecastRawDoc>,
+      {
+        projection: {
+          _id: 0,
+          informCode: 1,
+          forecastDate: 1,
+          issuedAt: 1,
+          issuedAtUtc: 1,
+          overall: 1,
+          cause: 1,
+          actionKnack: 1,
+          gradesByRegion: 1,
+        },
+      },
+    )
+    .sort({ forecastDate: 1, issuedAtUtc: -1 })
+    .limit(20)
+    .toArray();
+
+  return mapAirQualityForecastDocsToView(docs, requestedStation, regionHint);
+}
+
+async function loadLifestyleIndicesDocs(
+  requestedStation: string,
+  regionHint: string | null,
+): Promise<LifestyleIndicesView | null> {
+  const normalizedRegion = toLifestyleRegionQuery(regionHint || inferExpectedSido(requestedStation));
+  if (!normalizedRegion) return null;
+
+  const conn = await dbConnect();
+  const forecastDbName = process.env.WEATHER_FORECAST_DB_NAME || 'weather_forecast';
+  const lifestyleCollectionName =
+    process.env.KMA_LIFESTYLE_READER_COLLECTION || 'lifestyle_indices_daily';
+  const lifestyleCollection = conn.connection
+    .useDb(forecastDbName)
+    .collection<LifestyleIndexRawDoc>(lifestyleCollectionName);
+
+  const now = new Date();
+  const forecastStart = formatKstDate(now);
+  const forecastEnd = formatKstDate(new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000));
+  const docs = await lifestyleCollection
+    .find(
+      {
+        sidoName: normalizedRegion,
+        forecastDate: { $gte: forecastStart, $lte: forecastEnd },
+        category: { $in: ['UV', 'POLLEN'] },
+      } as Filter<LifestyleIndexRawDoc>,
+      {
+        projection: {
+          _id: 0,
+          category: 1,
+          pollenType: 1,
+          sidoName: 1,
+          forecastDate: 1,
+          issuedAt: 1,
+          issuedAtUtc: 1,
+          valueCode: 1,
+          valueLabel: 1,
+          peakValue: 1,
+          peakHourLabel: 1,
+        },
+      },
+    )
+    .sort({ forecastDate: 1, issuedAtUtc: -1, category: 1, pollenType: 1 })
+    .limit(40)
+    .toArray();
+
+  return mapLifestyleIndexDocsToView(docs, requestedStation, regionHint);
+}
+
 function pickWindowItems(
   items: WeatherForecastViewItemWithUpdatedAt[],
 ): WeatherForecastViewItemWithUpdatedAt[] {
@@ -390,6 +526,10 @@ async function handleGet(request: Request) {
   try {
     const loaded = await loadStationForecastDocs(stationName);
     const resolvedStation = loaded.station;
+    const regionHint =
+      loaded.docs.find((doc) => doc.stationName === resolvedStation)?.sidoName ||
+      loaded.docs[0]?.sidoName ||
+      inferExpectedSido(stationName);
     const mapped = dedupeForecastItems(
       loaded.docs
         .map((doc) => mapRawToView(doc))
@@ -407,16 +547,22 @@ async function handleGet(request: Request) {
       precipitationType: item.precipitationType,
       sky: item.sky,
     }));
+    const airQualityForecast = await loadAirQualityForecastDocs(stationName, regionHint || null);
+    const lifestyleIndices = await loadLifestyleIndicesDocs(stationName, regionHint || null);
+
+    const response: WeatherForecastResponse = {
+      requestedStation: stationName,
+      resolvedStation,
+      triedStations: loaded.triedStations,
+      windowHours: FORECAST_WINDOW_HOURS,
+      items: windowed,
+      airQualityForecast,
+      lifestyleIndices,
+      timestamp: new Date().toISOString(),
+    };
 
     return NextResponse.json(
-      {
-        requestedStation: stationName,
-        resolvedStation,
-        triedStations: loaded.triedStations,
-        windowHours: FORECAST_WINDOW_HOURS,
-        items: windowed,
-        timestamp: new Date().toISOString(),
-      },
+      response,
       {
         headers: {
           'Cache-Control': 'no-store, max-age=0',

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "miniapps/**",
+    "infra/public-data-cdk/**",
+    "workers/public-data/**",
     "next-env.d.ts",
   ]),
 ]);

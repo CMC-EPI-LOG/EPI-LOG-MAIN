@@ -12,6 +12,7 @@ import ShareButton from "@/components/ShareButton";
 import ActionChecklistCard from "@/components/ActionChecklistCard";
 import ClothingCard from "@/components/ClothingCard";
 import ClothingDetailModal from "@/components/ClothingDetailModal";
+import LifestyleIndexCard from "@/components/LifestyleIndexCard";
 import AiNotice from "@/components/AiNotice";
 import { Loader2, Settings } from "lucide-react";
 import toast from "react-hot-toast";
@@ -80,10 +81,53 @@ interface WeatherForecastItem {
   sky: number | null;
 }
 
+interface AirQualityForecastItem {
+  forecastDate: string;
+  pm10Grade: string | null;
+  pm25Grade: string | null;
+  overall: string | null;
+  cause: string | null;
+  actionKnack: string | null;
+}
+
+interface AirQualityForecastData {
+  requestedRegion: string | null;
+  resolvedRegion: string | null;
+  issuedAt: string | null;
+  items: AirQualityForecastItem[];
+}
+
+interface LifestyleUvItem {
+  forecastDate: string;
+  peakValue: number | null;
+  peakLabel: string | null;
+  peakHourLabel: string | null;
+}
+
+interface LifestylePollenItem {
+  forecastDate: string;
+  overallLabel: string | null;
+  pineLabel: string | null;
+  oakLabel: string | null;
+  weedLabel: string | null;
+}
+
+interface LifestyleIndicesData {
+  requestedRegion: string | null;
+  resolvedRegion: string | null;
+  uvIssuedAt: string | null;
+  pollenIssuedAt: string | null;
+  uvItems: LifestyleUvItem[];
+  pollenItems: LifestylePollenItem[];
+  actionSummary: string | null;
+}
+
 interface WeatherForecastData {
   requestedStation: string;
   resolvedStation: string | null;
   items: WeatherForecastItem[];
+  airQualityForecast?: AirQualityForecastData | null;
+  lifestyleIndices?: LifestyleIndicesData | null;
   timestamp?: string;
 }
 
@@ -425,6 +469,7 @@ export default function Home() {
       if (requestSeq !== requestSeqRef.current) return;
       setData(result);
       void fetchClothingRecommendation(result.airQuality?.temp, result.airQuality?.humidity);
+      void fetchWeatherForecast(currentLocation.stationName);
       setLoadErrorKind(null);
     } catch (error) {
       if (requestSeq !== requestSeqRef.current) return;
@@ -456,7 +501,7 @@ export default function Home() {
         setIsProfileRefreshing(false);
       }
     }
-  }, [data, fetchClothingRecommendation]);
+  }, [data, fetchClothingRecommendation, fetchWeatherForecast]);
 
   const refreshAirLatest = useCallback(async () => {
     const stationName = location.stationName?.trim();
@@ -772,9 +817,26 @@ export default function Home() {
         minute: "2-digit",
       })
     : undefined;
-  const measurementRegion = data?.airQuality?.stationName
-    ? [data.airQuality.sidoName, data.airQuality.stationName].filter(Boolean).join(" ")
-    : undefined;
+  const measurementRegion = useMemo(() => {
+    const resolvedStation = data?.reliability?.resolvedStation?.trim() || data?.airQuality?.stationName?.trim();
+    if (!resolvedStation) return undefined;
+
+    const resolvedLabel = [data?.airQuality?.sidoName, resolvedStation].filter(Boolean).join(" ");
+    const requestedStation = data?.reliability?.requestedStation?.trim();
+    const displayLocation = displayRegion?.trim() || requestedStation;
+
+    if (requestedStation && requestedStation !== resolvedStation) {
+      return `현재 위치 ${displayLocation || requestedStation} · 측정소 ${resolvedLabel}`;
+    }
+
+    return resolvedLabel;
+  }, [
+    data?.airQuality?.sidoName,
+    data?.airQuality?.stationName,
+    data?.reliability?.requestedStation,
+    data?.reliability?.resolvedStation,
+    displayRegion,
+  ]);
   const measurementDataTime = data?.airQuality?.dataTime ?? undefined;
 
   const freshnessMeta = useMemo(() => {
@@ -1157,12 +1219,20 @@ export default function Home() {
           {shouldRenderDataGrid && (
             <DataGrid
               data={{
-                pm25: data?.airQuality?.pm25_value || 0,
-                pm10: data?.airQuality?.pm10_value || 0,
-                o3: data?.airQuality?.o3_value || 0,
-                temperature: data?.airQuality?.temp || 0,
-                humidity: data?.airQuality?.humidity || 0,
-                no2: data?.airQuality?.no2_value || 0,
+                pm25: data?.airQuality?.pm25_value ?? null,
+                pm10: data?.airQuality?.pm10_value ?? null,
+                o3: data?.airQuality?.o3_value ?? null,
+                temperature: data?.airQuality?.temp ?? null,
+                humidity: data?.airQuality?.humidity ?? null,
+                no2: data?.airQuality?.no2_value ?? null,
+                co: data?.airQuality?.co_value ?? null,
+                so2: data?.airQuality?.so2_value ?? null,
+                khai: data?.airQuality?.khai_value ?? null,
+                khaiGrade: data?.airQuality?.khai_grade ?? null,
+                pm10Value24h: data?.airQuality?.pm10_value_24h ?? null,
+                pm25Value24h: data?.airQuality?.pm25_value_24h ?? null,
+                pm10Grade1h: data?.airQuality?.pm10_grade_1h ?? null,
+                pm25Grade1h: data?.airQuality?.pm25_grade_1h ?? null,
               }}
               reliabilityLabel={data?.reliability?.label}
               reliabilityDescription={data?.reliability?.description}
@@ -1177,6 +1247,12 @@ export default function Home() {
               isLoading={isProfileDataLoading}
             />
           )}
+
+          <LifestyleIndexCard
+            data={forecastData?.lifestyleIndices}
+            isLoading={isProfileDataLoading || isForecastLoading}
+            delay={1.15}
+          />
         </div>
       </div>
 
@@ -1198,11 +1274,13 @@ export default function Home() {
         </div>
       )}
 
-      <p className="max-w-2xl mx-auto text-center text-xs text-gray-600 font-medium mt-20 mb-20">
-        본 서비스는 의료적 조언이 아니며 정보 제공을 목적으로 합니다.
-        <br />
-        증상이 있다면 반드시 전문 의료진과 상의하세요.
-      </p>
+      <div className="max-w-2xl mx-auto mt-20 mb-20 space-y-3 text-center text-xs text-gray-600 font-medium">
+        <p className="text-gray-500">
+          본 서비스는 의료적 조언이 아니며 정보 제공을 목적으로 합니다.
+          <br />
+          증상이 있다면 반드시 전문 의료진과 상의하세요.
+        </p>
+      </div>
 
       <ProfileSettingsModal
         key={`settings-${settingsModalTab}-${profile?.ageGroup || "default"}-${profile?.condition || "none"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isSettingsModalOpen ? "open" : "closed"}`}
@@ -1224,6 +1302,7 @@ export default function Home() {
         humidity={clothingData?.humidity ?? data?.airQuality?.humidity}
         isForecastLoading={isForecastLoading}
         forecastItems={forecastData?.items}
+        airQualityForecast={forecastData?.airQualityForecast}
         forecastStationName={
           displayRegion || forecastData?.requestedStation || data?.airQuality?.stationName || location.stationName
         }

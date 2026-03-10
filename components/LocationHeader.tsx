@@ -5,6 +5,7 @@ import { MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
+import { normalizeLocationSelection } from '@/lib/locationSelection';
 
 const DaumPostcode = dynamic(() => import('react-daum-postcode'), { ssr: false });
 
@@ -25,8 +26,7 @@ export default function LocationHeader({ currentLocation, onLocationSelect }: Lo
   const portalRoot = typeof document !== 'undefined' ? document.body : null;
 
   const handleComplete = (data: DaumPostcodeData) => {
-    const displayAddress = data.bname || data.sigungu || data.address;
-    const stationQuery = [data.sido, data.sigungu, data.bname].filter(Boolean).join(' ').trim();
+    const { displayAddress, stationQuery } = normalizeLocationSelection(data);
 
     onLocationSelect(displayAddress, stationQuery || displayAddress);
     setIsSearchOpen(false);

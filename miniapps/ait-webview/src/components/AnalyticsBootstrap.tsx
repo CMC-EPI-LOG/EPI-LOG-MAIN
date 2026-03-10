@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { Analytics } from '@apps-in-toss/web-framework';
 import { GA_ID, persistUtmAttribution, trackCoreEvent, trackPageview } from '@/lib/analytics/ga';
 
 const BOOTSTRAP_KEY = '__aisoom_analytics_bootstrap_v1';
@@ -111,6 +112,14 @@ export default function AnalyticsBootstrap() {
       if (lastTrackedPath === pagePath) return;
 
       writeSessionValue(LAST_PAGE_PATH_KEY, pagePath);
+      Promise.resolve(
+        Analytics.screen({
+          page_path: pagePath,
+          platform: process.env.NEXT_PUBLIC_PLATFORM || 'TOSS',
+        }),
+      ).catch(() => {
+        // Ignore bridge failures so app rendering is unaffected.
+      });
       trackPageview(GA_ID, pagePath);
       trackCoreEvent('miniapp_pageview', {
         page_path: pagePath,

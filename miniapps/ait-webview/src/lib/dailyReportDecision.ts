@@ -8,15 +8,28 @@ export interface ProfileInput {
 export interface AirQualityView {
   stationName: string;
   sidoName?: string | null;
+  mang_name?: string | null;
   dataTime?: string | null;
   grade: 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD';
   value?: number;
   pm25_value?: number;
   pm10_value?: number;
+  pm25_value_24h?: number;
+  pm10_value_24h?: number;
   o3_value?: number;
   no2_value?: number;
   co_value?: number;
   so2_value?: number;
+  khai_value?: number;
+  khai_grade?: string;
+  pm10_grade_1h?: string;
+  pm25_grade_1h?: string;
+  pm10_flag?: string | null;
+  pm25_flag?: string | null;
+  o3_flag?: string | null;
+  no2_flag?: string | null;
+  co_flag?: string | null;
+  so2_flag?: string | null;
   temp?: number;
   humidity?: number;
   detail: {

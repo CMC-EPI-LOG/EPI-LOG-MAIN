@@ -15,6 +15,8 @@ Generates personalized health/activity guidance from station data and user profi
 | `stationName` | `string` | Yes | Air station name (e.g. `강남구`) |
 | `userProfile.ageGroup` | `string` | Yes | `infant` \| `toddler` \| `elementary_low` \| `elementary_high` \| `teen_adult` |
 | `userProfile.condition` | `string` | Yes | `general` \| `rhinitis` \| `asthma` \| `atopy` |
+| `currentAirQuality` | `object` | No | Authoritative Mongo/KMA 기반 현재 수치 컨텍스트. `resolvedStation`, `dataTime`, `pm25_value`, `pm10_value`, `o3_value`, `no2_value`, `temp`, `humidity` 등을 포함 |
+| `airQualitySummary` | `string` | No | 현재 수치를 자연어로 요약한 설명. AI 문안 생성 시 우선 기준으로 사용 |
 
 #### Response (major fields)
 | Field | Type | Description |
@@ -105,7 +107,8 @@ Aggregates air data + AI guidance, applies decision normalization, and returns r
 ```
 
 #### Runtime behavior
-- Air + AI are fetched in parallel with `Promise.allSettled`.
+- Air를 먼저 조회한 뒤, 현재 수치와 보정된 측정소 정보를 포함해 AI를 호출합니다.
+- AI 응답의 수치가 authoritative air data와 다르거나 AI 호출이 실패하면, BFF가 현재 air data 기준으로 문안을 보정합니다.
 - Partial failure returns degraded but render-safe payload.
 - O3 rule: when `BAD+`, action list force-appends `오후 2~5시 외출 금지`.
 - Infant rule: mask recommendation is overridden to `마스크 착용 금지(영아)`.

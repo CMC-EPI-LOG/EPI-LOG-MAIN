@@ -8,15 +8,28 @@ export interface ProfileInput {
 export interface AirQualityView {
   stationName: string;
   sidoName?: string | null;
+  mang_name?: string | null;
   dataTime?: string | null;
   grade: 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD';
   value?: number;
   pm25_value?: number;
   pm10_value?: number;
+  pm25_value_24h?: number;
+  pm10_value_24h?: number;
   o3_value?: number;
   no2_value?: number;
   co_value?: number;
   so2_value?: number;
+  khai_value?: number;
+  khai_grade?: string;
+  pm10_grade_1h?: string;
+  pm25_grade_1h?: string;
+  pm10_flag?: string | null;
+  pm25_flag?: string | null;
+  o3_flag?: string | null;
+  no2_flag?: string | null;
+  co_flag?: string | null;
+  so2_flag?: string | null;
   temp?: number;
   humidity?: number;
   detail: {
@@ -335,7 +348,20 @@ export function buildReliabilityMeta(
 ): ReliabilityMeta {
   const updatedAt = new Date().toISOString();
 
-  if (airFetch.usedFallbackData || !airFetch.data) {
+  if (airFetch.usedFallbackData && airFetch.data) {
+    return {
+      status: 'DEGRADED',
+      label: '직전 유효 실측값 보정',
+      description: '최신 측정값에 통신 장애가 있어 가장 최근의 유효 실측값으로 보정했어요.',
+      requestedStation,
+      resolvedStation: airFetch.resolvedStation,
+      triedStations: airFetch.triedStations,
+      updatedAt,
+      aiStatus: aiOk ? 'ok' : 'failed',
+    };
+  }
+
+  if (!airFetch.data) {
     return {
       status: 'DEGRADED',
       label: '주변 평균 대체 데이터',
