@@ -29,6 +29,7 @@ const shouldEnableSentryPlugin = Boolean(sentryOrg && sentryProject);
 
 const nextConfig = withPWA({
   dest: "public",
+  buildExcludes: [/\.map$/],
   disable: process.env.NODE_ENV === "development",
   register: true,
   skipWaiting: true,
