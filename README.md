@@ -141,7 +141,11 @@ flowchart LR
 - `NEXT_PUBLIC_KAKAO_JS_KEY`
 - `NEXT_PUBLIC_SITE_URL`
 - `NEXT_PUBLIC_GA_ID` 또는 `NEXT_PUBLIC_GA4_ID`
-- `NEXT_PUBLIC_SENTRY_DSN` (권장)
+- `NEXT_PUBLIC_SENTRY_DSN` (옵션)
+- `SENTRY_ORG` (소스맵 업로드/Next.js 플러그인 사용 시)
+- `SENTRY_PROJECT` (소스맵 업로드/Next.js 플러그인 사용 시)
+- `SENTRY_AUTH_TOKEN` (소스맵 업로드 시)
+- `SENTRY_RELEASE` (옵션, 릴리즈 식별자 고정 시)
 - `MONGODB_URI`
 - `MONGODB_DB` (옵션)
 - `NEXT_PUBLIC_PLATFORM` (`TOSS`일 때 공유/PWA 설치 UI 일부 비노출)
@@ -230,12 +234,22 @@ node scripts/nationwide-reliability-smoke.mjs \
 ## 9. 운영 메모
 
 - `next-pwa`는 개발환경에서 비활성화, 프로덕션에서 Service Worker 생성
-- Sentry는 Next.js(`withSentryConfig`)와 미니앱(`@sentry/browser`) 모두 구성
+- Sentry는 DSN이 있을 때만 런타임에서 활성화되고, `SENTRY_ORG`/`SENTRY_PROJECT`가 있을 때만 Next.js 빌드 플러그인이 활성화됨
 - `/api/*` 라우트는 CORS 헤더를 반환
 - `/api/log`는 MongoDB 미설정 시 `202(skipped)`로 응답하고 저장은 생략
 - `/api/weather-forecast`는 MongoDB(`weather_forecast`) 데이터 소스가 필요
 
-## 10. 관련 문서
+## 10. Sentry 계정 교체 가이드
+
+기존 Sentry 계정에서 새 계정으로 옮기려면:
+
+1. 배포 환경(Vercel 등)에서 기존 `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`, `SENTRY_RELEASE` 값을 제거합니다.
+2. 새 Sentry 계정에서 프로젝트를 만든 뒤 새 DSN을 `NEXT_PUBLIC_SENTRY_DSN`으로 등록합니다.
+3. Next.js 소스맵 업로드까지 사용할 경우 새 계정의 `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`도 함께 등록합니다.
+4. 미니앱을 별도 프로젝트로 운영할 경우 `miniapps/ait-webview` 쪽 `VITE_SENTRY_DSN`과 sourcemap 업로드용 `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`도 새 값으로 교체합니다.
+5. 새 값이 모두 들어오기 전까지는 코드상 Sentry 플러그인이 비활성화되므로 예전 계정으로 업로드되지 않습니다.
+
+## 11. 관련 문서
 
 - [API_GUIDE.md](./API_GUIDE.md)
 - [TEST_CASES.md](./TEST_CASES.md)

@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -31,6 +31,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+
+# local agent tooling
+.omx/
+.playwright-cli/
+
+# local infra outputs
+infra/public-data-cdk/cdk.out/
+infra/public-data-cdk/cdk.outputs.json
 
 # env files (can opt-in for committing if needed)
 .env*

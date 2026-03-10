@@ -5,67 +5,74 @@ import { Toaster } from "react-hot-toast";
 import KakaoScript from "@/components/KakaoScript";
 import Analytics from "@/components/Analytics";
 import LoggerInit from "@/components/LoggerInit";
+import {
+  DEFAULT_OG_IMAGE,
+  SITE_DESCRIPTION,
+  SITE_KEYWORDS,
+  SITE_NAME,
+  canonicalSiteUrl,
+  isIndexableDeployment,
+  siteUrl,
+} from "@/lib/site";
 import "./globals.css";
 
-const PRIMARY_SITE_URL = "https://www.ai-soom.site";
-const rawSiteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  (process.env.NODE_ENV === "production"
-    ? PRIMARY_SITE_URL
-    : process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000");
-const siteUrl = rawSiteUrl.replace(/\/$/, "");
 const gaId = process.env.NEXT_PUBLIC_GA_ID || process.env.NEXT_PUBLIC_GA4_ID;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  alternates: {
-    canonical: "/",
-  },
   title: {
-    default: "아이숨 (AI-Soom)",
-    template: "%s | 아이숨 (AI-Soom)",
+    default: SITE_NAME,
+    template: `%s | ${SITE_NAME}`,
   },
-  description: "대기질에 따른 우리 아이 활동 가이드",
-  applicationName: "아이숨 (AI-Soom)",
-  keywords: [
-    "아이숨",
-    "AI-Soom",
-    "대기질",
-    "미세먼지",
-    "초미세먼지",
-    "육아",
-    "아이 건강",
-    "활동 가이드",
-  ],
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  keywords: SITE_KEYWORDS,
+  category: "health",
+  referrer: "origin-when-cross-origin",
   manifest: "/manifest.json",
   openGraph: {
     type: "website",
     locale: "ko_KR",
-    url: siteUrl,
-    siteName: "아이숨 (AI-Soom)",
-    title: "아이숨 (AI-Soom)",
-    description: "대기질에 따른 우리 아이 활동 가이드",
+    url: canonicalSiteUrl,
+    siteName: SITE_NAME,
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
     images: [
       {
-        url: "/thumbnail.png",
+        url: DEFAULT_OG_IMAGE,
         width: 1200,
         height: 630,
-        alt: "아이숨 (AI-Soom) 공유 이미지",
+        alt: `${SITE_NAME} 공유 이미지`,
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "아이숨 (AI-Soom)",
-    description: "대기질에 따른 우리 아이 활동 가이드",
-    images: ["/thumbnail.png"],
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    images: [DEFAULT_OG_IMAGE],
   },
-  robots: {
-    index: true,
-    follow: true,
-  },
+  robots: isIndexableDeployment
+    ? {
+        index: true,
+        follow: true,
+        googleBot: {
+          index: true,
+          follow: true,
+          "max-image-preview": "large",
+          "max-snippet": -1,
+          "max-video-preview": -1,
+        },
+      }
+    : {
+        index: false,
+        follow: false,
+        googleBot: {
+          index: false,
+          follow: false,
+          noimageindex: true,
+        },
+      },
   verification: {
     google: "3bG1zQxlFNvpo41nV5G7Sox0n1HmuH_MnQl6wqGjWpo",
   },
@@ -79,8 +86,13 @@ export const viewport: Viewport = {
 };
 
 declare global {
+  interface KakaoSDK {
+    init: (appKey: string) => void;
+    isInitialized: () => boolean;
+  }
+
   interface Window {
-    Kakao: any;
+    Kakao?: KakaoSDK;
   }
 }
 

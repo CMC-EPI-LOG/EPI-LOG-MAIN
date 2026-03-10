@@ -7,6 +7,11 @@ const config: NextConfig = {
   // Note: instrumentation.ts is automatically enabled in Next.js 13+
 };
 
+const sentryOrg = process.env.SENTRY_ORG;
+const sentryProject = process.env.SENTRY_PROJECT;
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
+const shouldEnableSentryPlugin = Boolean(sentryOrg && sentryProject);
+
 const nextConfig = withPWA({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
@@ -14,8 +19,11 @@ const nextConfig = withPWA({
   skipWaiting: true,
 })(config);
 
-export default withSentryConfig(nextConfig, {
-  org: "epi-j9c",
-  project: "javascript-nextjs",
-  tunnelRoute: "/monitoring",
-});
+export default shouldEnableSentryPlugin
+  ? withSentryConfig(nextConfig, {
+      org: sentryOrg,
+      project: sentryProject,
+      authToken: sentryAuthToken,
+      tunnelRoute: "/monitoring",
+    })
+  : nextConfig;
