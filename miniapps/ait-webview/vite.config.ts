@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
   const sourceMapEnabled = (env.VITE_SOURCEMAP || 'true').toLowerCase() !== 'false'
 
   return {
+    envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     plugins: [tailwindcss(), react()],
     build: {
       sourcemap: mode === 'production' ? sourceMapEnabled : false,
@@ -22,6 +23,8 @@ export default defineConfig(({ mode }) => {
     define: {
       // Allow policy toggles to use the same env accessor as the Next.js app.
       'process.env.NEXT_PUBLIC_PLATFORM': JSON.stringify(platform),
+      'import.meta.env.SENTRY_RELEASE': JSON.stringify(env.SENTRY_RELEASE || ''),
+      'import.meta.env.VERCEL_GIT_COMMIT_SHA': JSON.stringify(env.VERCEL_GIT_COMMIT_SHA || ''),
     },
   }
 })

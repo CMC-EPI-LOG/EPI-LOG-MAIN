@@ -249,6 +249,10 @@ node scripts/nationwide-reliability-smoke.mjs \
 4. 미니앱을 별도 프로젝트로 운영할 경우 `miniapps/ait-webview` 쪽 `VITE_SENTRY_DSN`과 sourcemap 업로드용 `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`도 새 값으로 교체합니다.
 5. 새 값이 모두 들어오기 전까지는 코드상 Sentry 플러그인이 비활성화되므로 예전 계정으로 업로드되지 않습니다.
 
+참고:
+- 미니앱은 Vite `envPrefix`에 `NEXT_PUBLIC_`도 허용해 shared build env의 `NEXT_PUBLIC_SENTRY_DSN`을 fallback으로 읽을 수 있습니다.
+- 그래도 배포 경로가 Vercel이 아닌 경우에는 `miniapps/ait-webview/.env` 또는 해당 CI 환경에 `VITE_SENTRY_DSN`을 직접 넣는 편이 안전합니다.
+
 ## 11. 관련 문서
 
 - [API_GUIDE.md](./API_GUIDE.md)

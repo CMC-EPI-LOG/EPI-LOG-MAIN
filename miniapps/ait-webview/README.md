@@ -67,6 +67,8 @@ npm run build
 - `SENTRY_AUTH_TOKEN`: sourcemap 업로드 토큰
 - 공유 OG 이미지는 `https://www.ai-soom.site/thumbnail.png`로 고정되어 있습니다.
 
+`VITE_SENTRY_DSN`이 없더라도 shared build env에서 `NEXT_PUBLIC_SENTRY_DSN`이 주입되면 fallback으로 런타임 모니터링을 켤 수 있습니다. 다만 미니앱 단독 배포에서는 `VITE_SENTRY_DSN`을 명시하는 편이 안전합니다.
+
 ### sourcemap 업로드
 
 배포 산출물 생성 후 다음 스크립트로 sourcemap을 업로드합니다.
