@@ -1,0 +1,39 @@
+name: Production Healthz
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+jobs:
+  healthz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check production healthz
+        run: |
+          mkdir -p output/healthz
+          curl -fsS "https://www.ai-soom.site/api/healthz" -o output/healthz/web.json
+          curl -fsS "https://epi-log-ai.vercel.app/api/healthz" -o output/healthz/ai.json
+          grep '"ok"' output/healthz/web.json
+          grep '"ok"' output/healthz/ai.json
+
+      - name: Upload health artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-healthz
+          path: output/healthz/*
+          if-no-files-found: warn
+
+      - name: Notify on failure
+        if: failure()
+        run: node scripts/notify-ops.mjs "Production healthz failed" "repo=${{ github.repository }} run=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

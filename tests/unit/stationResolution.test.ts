@@ -89,6 +89,14 @@ describe('stationResolution', () => {
     expect(candidates[0]).toBe('사직동');
   });
 
+  it('읍/면/리 단위는 exact 후보를 힌트보다 우선 순위로 둔다', () => {
+    const candidates = buildStationCandidates('경상남도 김해시 진영읍');
+    expect(candidates[0]).toBe('진영읍');
+    expect(candidates).toEqual(
+      expect.arrayContaining(['장유동', '삼방동', '동상동']),
+    );
+  });
+
   it('요청 station query에서 기대 시도를 추론한다', () => {
     expect(inferExpectedSido('부산광역시 중구 영주동')).toBe('부산');
     expect(inferExpectedSido('서울특별시 강남구 역삼동')).toBe('서울');

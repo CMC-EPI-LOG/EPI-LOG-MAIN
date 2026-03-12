@@ -196,8 +196,17 @@ export function buildStationCandidates(rawStation: string): string[] {
   }
 
   const lastToken = tokens.length > 0 ? tokens[tokens.length - 1] : undefined;
+  const shouldPreferDirectCandidates =
+    Boolean(lastToken) && /[읍면리]$/.test(lastToken as string);
 
-  // 1차 매칭 성공률 향상을 위해 (힌트 -> 행정동 축약명) 순서로 우선 시도한다.
+  // 읍/면/리 단위는 exact 측정소가 존재하는 경우가 많아 직접 후보를 먼저 시도한다.
+  if (shouldPreferDirectCandidates) {
+    buildDirectStationCandidates(cleaned).forEach((candidate) => add(candidate));
+    matchedHints.forEach((hint) => add(hint));
+    return candidates;
+  }
+
+  // 기본 경로는 기존처럼 대표 측정소 힌트를 우선 적용한다.
   matchedHints.forEach((hint) => add(hint));
   buildDirectStationCandidates(cleaned).forEach((candidate) => add(candidate));
 

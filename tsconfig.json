@@ -30,5 +30,10 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "miniapps/**"]
+  "exclude": [
+    "node_modules",
+    "miniapps/**",
+    "infra/public-data-cdk/**",
+    "workers/public-data/**"
+  ]
 }

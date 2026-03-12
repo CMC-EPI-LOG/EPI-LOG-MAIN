@@ -141,7 +141,11 @@ flowchart LR
 - `NEXT_PUBLIC_KAKAO_JS_KEY`
 - `NEXT_PUBLIC_SITE_URL`
 - `NEXT_PUBLIC_GA_ID` 또는 `NEXT_PUBLIC_GA4_ID`
-- `NEXT_PUBLIC_SENTRY_DSN` (권장)
+- `NEXT_PUBLIC_SENTRY_DSN` (옵션)
+- `SENTRY_ORG` (소스맵 업로드/Next.js 플러그인 사용 시)
+- `SENTRY_PROJECT` (소스맵 업로드/Next.js 플러그인 사용 시)
+- `SENTRY_AUTH_TOKEN` (소스맵 업로드 시)
+- `SENTRY_RELEASE` (옵션, 릴리즈 식별자 고정 시)
 - `MONGODB_URI`
 - `MONGODB_DB` (옵션)
 - `NEXT_PUBLIC_PLATFORM` (`TOSS`일 때 공유/PWA 설치 UI 일부 비노출)
@@ -230,12 +234,50 @@ node scripts/nationwide-reliability-smoke.mjs \
 ## 9. 운영 메모
 
 - `next-pwa`는 개발환경에서 비활성화, 프로덕션에서 Service Worker 생성
-- Sentry는 Next.js(`withSentryConfig`)와 미니앱(`@sentry/browser`) 모두 구성
+- Sentry는 DSN이 있을 때만 런타임에서 활성화되고, `SENTRY_ORG`/`SENTRY_PROJECT`가 있을 때만 Next.js 빌드 플러그인이 활성화됨
 - `/api/*` 라우트는 CORS 헤더를 반환
+- `/api/healthz`는 `ok`, `version`, `env`, `aiApiReachable`, `mongoConfigured`, `sentryEnabled`만 반환하는 경량 운영 점검 엔드포인트
 - `/api/log`는 MongoDB 미설정 시 `202(skipped)`로 응답하고 저장은 생략
 - `/api/weather-forecast`는 MongoDB(`weather_forecast`) 데이터 소스가 필요
+- `/api/daily-report`, `/api/air-quality-latest`, `/api/weather-forecast`, `/api/clothing-recommendation`는 인메모리 + Mongo TTL shared cache를 함께 사용하고 `x-request-id`, `server-timing`, `x-degraded`, route별 cache header를 반환
+- 미니앱은 4초 timeout + 1회 retry 정책을 사용하고, 실패 시 프로필이 일치하는 마지막 성공 snapshot으로만 복구함
 
-## 10. 관련 문서
+### 9.1 무료 운영 기본 env
+
+웹/BFF:
+
+- `BFF_SHARED_CACHE_ENABLED=1`
+- `BFF_SHARED_CACHE_HARD_TTL_MS=86400000`
+- `API_RATE_LIMIT_WINDOW_MS=60000`
+- `API_RATE_LIMIT_MAX_PER_IP=60`
+
+미니앱:
+
+- `VITE_SENTRY_DSN` 또는 `NEXT_PUBLIC_SENTRY_DSN`
+- `VITE_SENTRY_ENVIRONMENT`
+- `VITE_SENTRY_RELEASE`
+
+### 9.2 GitHub Actions
+
+- `/.github/workflows/ci.yml`: `lint + build + vitest + playwright`
+- `/.github/workflows/public-data-ingest.yml`: AirKorea/KMA 적재를 GitHub schedule로 실행
+- `/.github/workflows/prod-healthz.yml`: 웹/AI 프로덕션 healthz를 30분마다 점검
+
+## 10. Sentry 계정 교체 가이드
+
+기존 Sentry 계정에서 새 계정으로 옮기려면:
+
+1. 배포 환경(Vercel 등)에서 기존 `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`, `SENTRY_RELEASE` 값을 제거합니다.
+2. 새 Sentry 계정에서 프로젝트를 만든 뒤 새 DSN을 `NEXT_PUBLIC_SENTRY_DSN`으로 등록합니다.
+3. Next.js 소스맵 업로드까지 사용할 경우 새 계정의 `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`도 함께 등록합니다.
+4. 미니앱을 별도 프로젝트로 운영할 경우 `miniapps/ait-webview` 쪽 `VITE_SENTRY_DSN`과 sourcemap 업로드용 `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`도 새 값으로 교체합니다.
+5. 새 값이 모두 들어오기 전까지는 코드상 Sentry 플러그인이 비활성화되므로 예전 계정으로 업로드되지 않습니다.
+
+참고:
+- 미니앱은 Vite `envPrefix`에 `NEXT_PUBLIC_`도 허용해 shared build env의 `NEXT_PUBLIC_SENTRY_DSN`을 fallback으로 읽을 수 있습니다.
+- 그래도 배포 경로가 Vercel이 아닌 경우에는 `miniapps/ait-webview/.env` 또는 해당 CI 환경에 `VITE_SENTRY_DSN`을 직접 넣는 편이 안전합니다.
+
+## 11. 관련 문서
 
 - [API_GUIDE.md](./API_GUIDE.md)
 - [TEST_CASES.md](./TEST_CASES.md)

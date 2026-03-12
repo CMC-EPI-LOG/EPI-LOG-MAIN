@@ -62,7 +62,12 @@ npm run build
 - `VITE_SENTRY_ENVIRONMENT`: 환경 이름(예: `production`, `staging`)
 - `VITE_SENTRY_RELEASE`: 릴리즈 식별자(예: git sha)
 - `VITE_SENTRY_TRACES_SAMPLE_RATE`: 트레이스 샘플링 비율(기본 `0`)
+- `SENTRY_ORG`: sourcemap 업로드 대상 org
+- `SENTRY_PROJECT`: sourcemap 업로드 대상 project
+- `SENTRY_AUTH_TOKEN`: sourcemap 업로드 토큰
 - 공유 OG 이미지는 `https://www.ai-soom.site/thumbnail.png`로 고정되어 있습니다.
+
+`VITE_SENTRY_DSN`이 없더라도 shared build env에서 `NEXT_PUBLIC_SENTRY_DSN`이 주입되면 fallback으로 런타임 모니터링을 켤 수 있습니다. 다만 미니앱 단독 배포에서는 `VITE_SENTRY_DSN`을 명시하는 편이 안전합니다.
 
 ### sourcemap 업로드
 
@@ -91,6 +96,10 @@ npm run release:build
 ### granite.config.ts 플러그인 검토 결과
 
 SDK `@apps-in-toss/web-framework@2.0.1` 기준으로도 sourcemap 운영은 `sentry-cli` 스크립트 기반으로 처리합니다.
+
+### 계정 교체 시
+
+기존 계정에서 새 계정으로 옮길 때는 기존 `VITE_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`, `VITE_SENTRY_RELEASE` 값을 제거한 뒤 새 값으로 다시 넣어주세요. `VITE_SENTRY_DSN`이 비어 있으면 미니앱 런타임 모니터링은 비활성화됩니다.
 
 ## 디자인 시스템(TDS)
 

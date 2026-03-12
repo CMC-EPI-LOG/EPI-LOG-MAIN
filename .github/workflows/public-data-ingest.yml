@@ -1,0 +1,208 @@
+name: Public Data Ingest
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Job to run
+        required: true
+        type: choice
+        options:
+          - airkorea-realtime
+          - airkorea-forecast
+          - kma-short-forecast
+          - kma-lifestyle
+      scope:
+        description: Optional comma-separated scope list
+        required: false
+        type: string
+      dry_run:
+        description: Run without writes
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: '7,27,47 * * * *'
+    - cron: '17 * * * *'
+    - cron: '23 * * * *'
+    - cron: '12,42 * * * *'
+    - cron: '20 */3 * * *'
+
+jobs:
+  airkorea_realtime:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'airkorea-realtime'
+      || github.event.schedule == '7,27,47 * * * *'
+      || github.event.schedule == '17 * * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      AIRKOREA_SERVICE_KEY: ${{ secrets.AIRKOREA_SERVICE_KEY }}
+      AIRKOREA_BASE_URL: ${{ secrets.AIRKOREA_BASE_URL }}
+      AIRKOREA_API_VERSION: ${{ vars.AIRKOREA_API_VERSION }}
+      AIRKOREA_DB_NAME: ${{ vars.AIRKOREA_DB_NAME }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: workers/public-data/package-lock.json
+      - name: Install worker dependencies
+        run: npm ci
+        working-directory: workers/public-data
+      - name: Run AirKorea realtime ingest
+        run: |
+          mkdir -p output/public-data
+          ARGS=(--job airkorea-realtime)
+          if [ "${{ github.event.inputs.scope }}" != "" ]; then
+            ARGS+=(--scope "${{ github.event.inputs.scope }}")
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          npm run run:job -- "${ARGS[@]}" | tee output/public-data/airkorea-realtime.json
+        working-directory: workers/public-data
+      - name: Upload ingest artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: airkorea-realtime
+          path: workers/public-data/output/public-data/*
+          if-no-files-found: warn
+      - name: Notify on failure
+        if: failure()
+        run: node scripts/notify-ops.mjs "Public data ingest failed" "job=airkorea-realtime repo=${{ github.repository }} run=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  airkorea_forecast:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'airkorea-forecast'
+      || github.event.schedule == '23 * * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      AIRKOREA_SERVICE_KEY: ${{ secrets.AIRKOREA_SERVICE_KEY }}
+      AIRKOREA_BASE_URL: ${{ secrets.AIRKOREA_BASE_URL }}
+      AIRKOREA_FORECAST_BASE_URL: ${{ secrets.AIRKOREA_FORECAST_BASE_URL }}
+      AIRKOREA_API_VERSION: ${{ vars.AIRKOREA_API_VERSION }}
+      AIRKOREA_DB_NAME: ${{ vars.AIRKOREA_DB_NAME }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: workers/public-data/package-lock.json
+      - name: Install worker dependencies
+        run: npm ci
+        working-directory: workers/public-data
+      - name: Run AirKorea forecast ingest
+        run: |
+          mkdir -p output/public-data
+          export AIRKOREA_BASE_URL="${AIRKOREA_FORECAST_BASE_URL:-$AIRKOREA_BASE_URL}"
+          npm run run:job -- --job airkorea-forecast | tee output/public-data/airkorea-forecast.json
+        working-directory: workers/public-data
+      - name: Upload ingest artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: airkorea-forecast
+          path: workers/public-data/output/public-data/*
+          if-no-files-found: warn
+      - name: Notify on failure
+        if: failure()
+        run: node scripts/notify-ops.mjs "Public data ingest failed" "job=airkorea-forecast repo=${{ github.repository }} run=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  kma_short_forecast:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'kma-short-forecast'
+      || github.event.schedule == '12,42 * * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      KMA_SERVICE_KEY: ${{ secrets.KMA_SERVICE_KEY }}
+      KMA_BASE_URL: ${{ secrets.KMA_BASE_URL }}
+      WEATHER_FORECAST_DB_NAME: ${{ vars.WEATHER_FORECAST_DB_NAME }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: workers/public-data/package-lock.json
+      - name: Install worker dependencies
+        run: npm ci
+        working-directory: workers/public-data
+      - name: Run KMA short forecast ingest
+        run: |
+          mkdir -p output/public-data
+          npm run run:job -- --job kma-short-forecast | tee output/public-data/kma-short-forecast.json
+        working-directory: workers/public-data
+      - name: Upload ingest artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kma-short-forecast
+          path: workers/public-data/output/public-data/*
+          if-no-files-found: warn
+      - name: Notify on failure
+        if: failure()
+        run: node scripts/notify-ops.mjs "Public data ingest failed" "job=kma-short-forecast repo=${{ github.repository }} run=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  kma_lifestyle:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'kma-lifestyle'
+      || github.event.schedule == '20 */3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      KMA_SERVICE_KEY: ${{ secrets.KMA_SERVICE_KEY }}
+      KMA_BASE_URL: ${{ secrets.KMA_BASE_URL }}
+      KMA_LIFESTYLE_BASE_URL: ${{ secrets.KMA_LIFESTYLE_BASE_URL }}
+      WEATHER_FORECAST_DB_NAME: ${{ vars.WEATHER_FORECAST_DB_NAME }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: workers/public-data/package-lock.json
+      - name: Install worker dependencies
+        run: npm ci
+        working-directory: workers/public-data
+      - name: Run KMA lifestyle ingest
+        run: |
+          mkdir -p output/public-data
+          export KMA_BASE_URL="${KMA_LIFESTYLE_BASE_URL:-$KMA_BASE_URL}"
+          npm run run:job -- --job kma-lifestyle | tee output/public-data/kma-lifestyle.json
+        working-directory: workers/public-data
+      - name: Upload ingest artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kma-lifestyle
+          path: workers/public-data/output/public-data/*
+          if-no-files-found: warn
+      - name: Notify on failure
+        if: failure()
+        run: node scripts/notify-ops.mjs "Public data ingest failed" "job=kma-lifestyle repo=${{ github.repository }} run=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

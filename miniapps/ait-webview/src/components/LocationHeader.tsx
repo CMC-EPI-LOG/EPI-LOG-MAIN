@@ -3,6 +3,7 @@
 import { Suspense, lazy, useMemo, useState } from 'react';
 import { MapPin } from 'lucide-react';
 import { Modal } from '@toss/tds-mobile';
+import { normalizeLocationSelection } from '@/lib/locationSelection';
 
 const DaumPostcode = lazy(() => import('react-daum-postcode'));
 
@@ -26,8 +27,7 @@ export default function LocationHeader({ currentLocation, onLocationSelect }: Lo
   );
 
   const handleComplete = (data: DaumPostcodeData) => {
-    const displayAddress = data.bname || data.sigungu || data.address;
-    const stationQuery = [data.sido, data.sigungu, data.bname].filter(Boolean).join(' ').trim();
+    const { displayAddress, stationQuery } = normalizeLocationSelection(data);
 
     onLocationSelect(displayAddress, stationQuery || displayAddress);
     setIsSearchOpen(false);

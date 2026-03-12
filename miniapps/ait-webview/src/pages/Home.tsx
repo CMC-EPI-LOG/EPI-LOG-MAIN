@@ -12,6 +12,7 @@ import ShareButton from "@/components/ShareButton";
 import ActionChecklistCard from "@/components/ActionChecklistCard";
 import ClothingCard from "@/components/ClothingCard";
 import ClothingDetailModal from "@/components/ClothingDetailModal";
+import LifestyleIndexCard from "@/components/LifestyleIndexCard";
 import AiNotice from "@/components/AiNotice";
 import { Loader2, Settings } from "lucide-react";
 import toast from "react-hot-toast";
@@ -19,6 +20,14 @@ import { getCharacterPath } from "@/lib/characterUtils";
 import { getBackgroundColor } from "@/lib/colorUtils";
 import { setCoreEventContext, trackCoreEvent } from "@/lib/analytics/ga";
 import { setSentryRuntimeContext } from "@/lib/monitoring/sentry";
+import {
+  fetchJsonWithTimeout,
+  fetchResponseJsonWithTimeout,
+} from "@/lib/apiClient";
+import {
+  loadReportSnapshot,
+  saveReportSnapshot,
+} from "@/lib/reportSnapshot";
 import { useLogger } from "@/hooks/useLogger";
 import { apiUrl } from "@/lib/apiBase";
 import {
@@ -30,12 +39,12 @@ import {
   type ReliabilityMeta,
 } from "@/lib/dailyReportDecision";
 
-const REPORT_TIMEOUT_MS = 25000;
+const REPORT_TIMEOUT_MS = 4000;
+const MINIAPP_API_RETRY_COUNT = 1;
 const FRESHNESS_DELAYED_MINUTES = 60;
 const FRESHNESS_STALE_MINUTES = 90;
 const AIR_LATEST_POLL_INTERVAL_MS = 60_000;
-const REVERSE_GEOCODE_TIMEOUT_MS = 5000;
-const REVERSE_GEOCODE_RETRY_COUNT = 1;
+const REVERSE_GEOCODE_TIMEOUT_MS = 4000;
 const DEFAULT_LOCATION_FALLBACK = {
   lat: 37.5172,
   lng: 127.0473,
@@ -55,6 +64,14 @@ interface DailyReportData {
   decisionSignals?: DecisionSignals;
   reliability?: ReliabilityMeta;
   timestamp?: string;
+}
+
+interface PersistedReportSnapshot {
+  profileSignature: string;
+  report: DailyReportData;
+  clothingData: ClothingRecommendationData | null;
+  forecastData: WeatherForecastData | null;
+  displayRegion: string;
 }
 
 interface ClothingRecommendationData {
@@ -80,10 +97,53 @@ interface WeatherForecastItem {
   sky: number | null;
 }
 
+interface AirQualityForecastItem {
+  forecastDate: string;
+  pm10Grade: string | null;
+  pm25Grade: string | null;
+  overall: string | null;
+  cause: string | null;
+  actionKnack: string | null;
+}
+
+interface AirQualityForecastData {
+  requestedRegion: string | null;
+  resolvedRegion: string | null;
+  issuedAt: string | null;
+  items: AirQualityForecastItem[];
+}
+
+interface LifestyleUvItem {
+  forecastDate: string;
+  peakValue: number | null;
+  peakLabel: string | null;
+  peakHourLabel: string | null;
+}
+
+interface LifestylePollenItem {
+  forecastDate: string;
+  overallLabel: string | null;
+  pineLabel: string | null;
+  oakLabel: string | null;
+  weedLabel: string | null;
+}
+
+interface LifestyleIndicesData {
+  requestedRegion: string | null;
+  resolvedRegion: string | null;
+  uvIssuedAt: string | null;
+  pollenIssuedAt: string | null;
+  uvItems: LifestyleUvItem[];
+  pollenItems: LifestylePollenItem[];
+  actionSummary: string | null;
+}
+
 interface WeatherForecastData {
   requestedStation: string;
   resolvedStation: string | null;
   items: WeatherForecastItem[];
+  airQualityForecast?: AirQualityForecastData | null;
+  lifestyleIndices?: LifestyleIndicesData | null;
   timestamp?: string;
 }
 
@@ -91,6 +151,11 @@ interface ReverseGeocodeResponse {
   regionName?: string;
   stationCandidate?: string;
   error?: string;
+}
+
+interface SnapshotBannerMeta {
+  savedAt: string;
+  stationName: string;
 }
 
 const KNOWN_CONDITION_LABELS: Record<string, string> = {
@@ -144,6 +209,18 @@ function buildConditionSummary(profile: UserProfile | null | undefined): string 
   return `질환: ${merged.join(", ")}`;
 }
 
+function buildSnapshotProfileSignature(profile: UserProfile | null | undefined): string {
+  const conditions = normalizeKnownConditions(profile).join("|");
+  const customConditions = (profile?.customConditions || []).map((item) => item.trim()).join("|");
+
+  return [
+    profile?.ageGroup || "unknown",
+    profile?.condition || "none",
+    conditions,
+    customConditions,
+  ].join("::");
+}
+
 function readSharedByFromUrl(): string | null {
   try {
     const value = new URL(window.location.href).searchParams.get("shared_by");
@@ -183,6 +260,8 @@ export default function Home() {
   const [settingsModalTab, setSettingsModalTab] = useState<SettingsModalTab>("age");
   const [displayRegion, setDisplayRegion] = useState(location.stationName);
   const [loadErrorKind, setLoadErrorKind] = useState<LoadErrorKind>(null);
+  const [snapshotMeta, setSnapshotMeta] = useState<SnapshotBannerMeta | null>(null);
+  const [cacheMode, setCacheMode] = useState("network:unknown");
   const [isLocationRefreshing, setIsLocationRefreshing] = useState(false);
   const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
   const [locationPermissionStatus, setLocationPermissionStatus] =
@@ -253,77 +332,58 @@ export default function Home() {
   );
 
   const fetchReverseGeocodeByCoords = useCallback(async (lat: number, lng: number) => {
-    let lastError: unknown = null;
+    const payload = await fetchJsonWithTimeout<ReverseGeocodeResponse>(
+      apiUrl("/api/reverse-geocode"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lng }),
+      },
+      {
+        timeoutMs: REVERSE_GEOCODE_TIMEOUT_MS,
+        retryCount: MINIAPP_API_RETRY_COUNT,
+      },
+    );
 
-    for (let attempt = 0; attempt <= REVERSE_GEOCODE_RETRY_COUNT; attempt += 1) {
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => {
-        controller.abort();
-      }, REVERSE_GEOCODE_TIMEOUT_MS);
-
-      try {
-        const res = await fetch(apiUrl("/api/reverse-geocode"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lat, lng }),
-          signal: controller.signal,
-        });
-
-        const payload = (await res.json().catch(() => ({}))) as ReverseGeocodeResponse;
-        if (!res.ok) {
-          const reason = payload.error?.trim() || `HTTP_${res.status}`;
-          const geocodeError = new Error(`reverse_geocode_${reason}`);
-          (geocodeError as { retriable?: boolean }).retriable =
-            res.status >= 500 || res.status === 408 || res.status === 429;
-          throw geocodeError;
-        }
-
-        const regionName = payload.regionName?.trim();
-        const stationCandidate = payload.stationCandidate?.trim();
-        if (!regionName || !stationCandidate) {
-          const geocodeError = new Error("reverse_geocode_invalid_payload");
-          (geocodeError as { retriable?: boolean }).retriable = true;
-          throw geocodeError;
-        }
-
-        return { regionName, stationCandidate };
-      } catch (error) {
-        lastError = error;
-        const isAbortError = error instanceof DOMException && error.name === "AbortError";
-        const retriable =
-          isAbortError ||
-          ((error as { retriable?: boolean } | null)?.retriable ?? true);
-        const isLastAttempt = attempt >= REVERSE_GEOCODE_RETRY_COUNT;
-        if (isLastAttempt || !retriable) break;
-        await new Promise((resolve) => {
-          window.setTimeout(resolve, 150 * (attempt + 1));
-        });
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
+    const regionName = payload.regionName?.trim();
+    const stationCandidate = payload.stationCandidate?.trim();
+    if (!regionName || !stationCandidate) {
+      throw new Error("reverse_geocode_invalid_payload");
     }
 
-    throw lastError || new Error("reverse_geocode_failed");
+    return { regionName, stationCandidate };
   }, []);
 
-  const fetchClothingRecommendation = useCallback(async (temperature?: number, humidity?: number) => {
+  const fetchClothingRecommendation = useCallback(async (
+    temperature?: number,
+    humidity?: number,
+    airQuality?: DailyReportData["airQuality"],
+  ) => {
     const requestSeq = ++clothingRequestSeqRef.current;
     const safeTemperature = typeof temperature === "number" ? temperature : 22;
     const safeHumidity = typeof humidity === "number" ? humidity : 45;
 
     setIsClothingLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/clothing-recommendation"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          temperature: safeTemperature,
-          humidity: safeHumidity,
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to fetch clothing recommendation");
+      const result = await fetchJsonWithTimeout<ClothingRecommendationData>(
+        apiUrl("/api/clothing-recommendation"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            temperature: safeTemperature,
+            humidity: safeHumidity,
+            userProfile: profile ?? null,
+            airQuality: airQuality ?? null,
+            airGrade: airQuality?.grade ?? null,
+          }),
+        },
+        {
+          timeoutMs: REPORT_TIMEOUT_MS,
+          retryCount: MINIAPP_API_RETRY_COUNT,
+        },
+      );
 
-      const result = (await res.json()) as ClothingRecommendationData;
       if (requestSeq !== clothingRequestSeqRef.current) return;
       setClothingData(result);
     } catch (error) {
@@ -343,7 +403,7 @@ export default function Home() {
         setIsClothingLoading(false);
       }
     }
-  }, []);
+  }, [profile]);
 
   const fetchWeatherForecast = useCallback(async (stationName?: string) => {
     const requestSeq = ++forecastRequestSeqRef.current;
@@ -362,13 +422,14 @@ export default function Home() {
 
     setIsForecastLoading(true);
     try {
-      const res = await fetch(
+      const result = await fetchJsonWithTimeout<WeatherForecastData>(
         apiUrl(`/api/weather-forecast?stationName=${encodeURIComponent(targetStation)}`),
         { cache: "no-store" },
+        {
+          timeoutMs: REPORT_TIMEOUT_MS,
+          retryCount: MINIAPP_API_RETRY_COUNT,
+        },
       );
-      if (!res.ok) throw new Error("Failed to fetch weather forecast");
-
-      const result = (await res.json()) as WeatherForecastData;
       if (requestSeq !== forecastRequestSeqRef.current) return;
       setForecastData(result);
     } catch (error) {
@@ -391,7 +452,6 @@ export default function Home() {
       new DOMException("Superseded by newer request", "AbortError"),
     );
 
-    let didTimeout = false;
     activeFetchCauseRef.current = cause;
     setLoadErrorKind(null);
     if (data) {
@@ -403,39 +463,70 @@ export default function Home() {
     setIsProfileRefreshing(cause === "profile" && Boolean(data));
     const controller = new AbortController();
     activeControllerRef.current = controller;
-    const timeoutId = setTimeout(() => {
-      didTimeout = true;
-      controller.abort(new DOMException("Request timeout", "TimeoutError"));
-    }, REPORT_TIMEOUT_MS);
 
     try {
-      const res = await fetch(apiUrl("/api/daily-report"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          stationName: currentLocation.stationName,
-          profile: currentProfile,
-        }),
-        signal: controller.signal,
-      });
+      const { data: result, response } = await fetchResponseJsonWithTimeout<DailyReportData>(
+        apiUrl("/api/daily-report"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            stationName: currentLocation.stationName,
+            profile: currentProfile,
+          }),
+          signal: controller.signal,
+        },
+        {
+          timeoutMs: REPORT_TIMEOUT_MS,
+          retryCount: MINIAPP_API_RETRY_COUNT,
+        },
+      );
 
-      if (!res.ok) throw new Error("Failed to fetch");
-
-      const result = (await res.json()) as DailyReportData;
       if (requestSeq !== requestSeqRef.current) return;
+      setSnapshotMeta(null);
+      setCacheMode(
+        [
+          "network",
+          `air=${response.headers.get("x-bff-air-cache") || "unknown"}`,
+          `ai=${response.headers.get("x-bff-ai-cache") || "unknown"}`,
+        ].join(";"),
+      );
       setData(result);
-      void fetchClothingRecommendation(result.airQuality?.temp, result.airQuality?.humidity);
+      void fetchClothingRecommendation(
+        result.airQuality?.temp,
+        result.airQuality?.humidity,
+        result.airQuality,
+      );
+      void fetchWeatherForecast(currentLocation.stationName);
       setLoadErrorKind(null);
     } catch (error) {
       if (requestSeq !== requestSeqRef.current) return;
 
-      if (controller.signal.aborted && !didTimeout) {
+      if (controller.signal.aborted) {
         return;
       }
 
       console.error(error);
-      const isTimeoutError =
-        didTimeout || (error instanceof DOMException && error.name === "AbortError");
+      const isTimeoutError = error instanceof DOMException && error.name === "TimeoutError";
+
+      const snapshot = loadReportSnapshot<PersistedReportSnapshot>();
+      if (
+        snapshot?.data?.report
+        && snapshot.data.profileSignature === buildSnapshotProfileSignature(currentProfile)
+      ) {
+        setData(snapshot.data.report);
+        setClothingData(snapshot.data.clothingData);
+        setForecastData(snapshot.data.forecastData);
+        setDisplayRegion(snapshot.data.displayRegion || snapshot.stationName);
+        setSnapshotMeta({
+          savedAt: snapshot.savedAt,
+          stationName: snapshot.stationName,
+        });
+        setCacheMode("snapshot:stale");
+        setLoadErrorKind(null);
+        toast("마지막 성공 데이터를 보여주고 있어요.");
+        return;
+      }
 
       if (isTimeoutError) {
         setLoadErrorKind("timeout");
@@ -445,7 +536,6 @@ export default function Home() {
         toast.error("데이터를 불러오지 못했어요 😢");
       }
     } finally {
-      clearTimeout(timeoutId);
       if (activeControllerRef.current === controller) {
         activeControllerRef.current = null;
       }
@@ -456,7 +546,7 @@ export default function Home() {
         setIsProfileRefreshing(false);
       }
     }
-  }, [data, fetchClothingRecommendation]);
+  }, [data, fetchClothingRecommendation, fetchWeatherForecast]);
 
   const refreshAirLatest = useCallback(async () => {
     const stationName = location.stationName?.trim();
@@ -466,17 +556,18 @@ export default function Home() {
 
     airLatestInFlightRef.current = true;
     try {
-      const res = await fetch(
-        apiUrl(`/api/air-quality-latest?stationName=${encodeURIComponent(stationName)}`),
-        { cache: "no-store" },
-      );
-      if (!res.ok) return;
-
-      const latest = (await res.json()) as {
+      const latest = await fetchJsonWithTimeout<{
         airQuality?: AirQualityView;
         reliability?: ReliabilityMeta;
         timestamp?: string;
-      };
+      }>(
+        apiUrl(`/api/air-quality-latest?stationName=${encodeURIComponent(stationName)}`),
+        { cache: "no-store" },
+        {
+          timeoutMs: REPORT_TIMEOUT_MS,
+          retryCount: MINIAPP_API_RETRY_COUNT,
+        },
+      );
       const latestAirQuality = latest.airQuality;
       if (!latestAirQuality) return;
 
@@ -526,7 +617,11 @@ export default function Home() {
           timestamp: latest.timestamp || prev.timestamp,
         };
       });
-      void fetchClothingRecommendation(latestAirQuality.temp, latestAirQuality.humidity);
+      void fetchClothingRecommendation(
+        latestAirQuality.temp,
+        latestAirQuality.humidity,
+        latestAirQuality,
+      );
     } catch (error) {
       console.error("[UI] Air latest refresh failed:", error);
     } finally {
@@ -772,9 +867,26 @@ export default function Home() {
         minute: "2-digit",
       })
     : undefined;
-  const measurementRegion = data?.airQuality?.stationName
-    ? [data.airQuality.sidoName, data.airQuality.stationName].filter(Boolean).join(" ")
-    : undefined;
+  const measurementRegion = useMemo(() => {
+    const resolvedStation = data?.reliability?.resolvedStation?.trim() || data?.airQuality?.stationName?.trim();
+    if (!resolvedStation) return undefined;
+
+    const resolvedLabel = [data?.airQuality?.sidoName, resolvedStation].filter(Boolean).join(" ");
+    const requestedStation = data?.reliability?.requestedStation?.trim();
+    const displayLocation = displayRegion?.trim() || requestedStation;
+
+    if (requestedStation && requestedStation !== resolvedStation) {
+      return `현재 위치 ${displayLocation || requestedStation} · 측정소 ${resolvedLabel}`;
+    }
+
+    return resolvedLabel;
+  }, [
+    data?.airQuality?.sidoName,
+    data?.airQuality?.stationName,
+    data?.reliability?.requestedStation,
+    data?.reliability?.resolvedStation,
+    displayRegion,
+  ]);
   const measurementDataTime = data?.airQuality?.dataTime ?? undefined;
 
   const freshnessMeta = useMemo(() => {
@@ -819,6 +931,18 @@ export default function Home() {
     };
   }, [data?.airQuality?.dataTime]);
 
+  const snapshotSavedAtLabel = useMemo(() => {
+    if (!snapshotMeta?.savedAt) return null;
+    const parsed = new Date(snapshotMeta.savedAt);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toLocaleString("ko-KR", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }, [snapshotMeta?.savedAt]);
+
   const decisionSignalChips = useMemo(() => {
     const chips: string[] = [];
     if (!data?.decisionSignals) return chips;
@@ -860,11 +984,13 @@ export default function Home() {
     void fetchClothingRecommendation(
       clothingData?.temperature ?? data?.airQuality?.temp,
       clothingData?.humidity ?? data?.airQuality?.humidity,
+      data?.airQuality,
     );
     void fetchWeatherForecast(data?.airQuality?.stationName ?? location.stationName);
   }, [
     clothingData?.humidity,
     clothingData?.temperature,
+    data?.airQuality,
     data?.airQuality?.humidity,
     data?.airQuality?.stationName,
     data?.airQuality?.temp,
@@ -877,11 +1003,13 @@ export default function Home() {
     void fetchClothingRecommendation(
       clothingData?.temperature ?? data?.airQuality?.temp,
       clothingData?.humidity ?? data?.airQuality?.humidity,
+      data?.airQuality,
     );
     void fetchWeatherForecast(data?.airQuality?.stationName ?? location.stationName);
   }, [
     clothingData?.humidity,
     clothingData?.temperature,
+    data?.airQuality,
     data?.airQuality?.humidity,
     data?.airQuality?.stationName,
     data?.airQuality?.temp,
@@ -957,6 +1085,29 @@ export default function Home() {
   ]);
 
   useEffect(() => {
+    if (!data || snapshotMeta) return;
+
+    saveReportSnapshot(
+      data.airQuality?.stationName || location.stationName || DEFAULT_LOCATION_FALLBACK.stationName,
+      {
+        profileSignature: buildSnapshotProfileSignature(profile),
+        report: data,
+        clothingData,
+        forecastData,
+        displayRegion,
+      },
+    );
+  }, [
+    clothingData,
+    data,
+    displayRegion,
+    forecastData,
+    location.stationName,
+    profile,
+    snapshotMeta,
+  ]);
+
+  useEffect(() => {
     const conditionContext = buildConditionContextValue(profile);
     const knownConditions = normalizeKnownConditions(profile);
     const customConditions = profile?.customConditions || [];
@@ -968,8 +1119,9 @@ export default function Home() {
       condition: conditionContext,
     });
     setSentryRuntimeContext({
-      stationName: data?.airQuality?.stationName || location.stationName,
+      stationName: location.stationName || data?.airQuality?.stationName,
       reliabilityStatus: data?.reliability?.status || "unknown",
+      cacheMode,
       ageGroup: profile?.ageGroup,
       condition: conditionContext,
       knownConditions,
@@ -978,6 +1130,7 @@ export default function Home() {
   }, [
     data?.airQuality?.stationName,
     data?.reliability?.status,
+    cacheMode,
     location.stationName,
     profile,
   ]);
@@ -1076,6 +1229,26 @@ export default function Home() {
         </section>
       )}
 
+      {snapshotMeta && (
+        <section className="mx-auto mb-3 max-w-2xl" data-testid="stale-snapshot-banner">
+          <div className="rounded-[20px] border-2 border-black bg-[#FFF1CC] px-4 py-3 shadow-bento-sm">
+            <p className="text-[11px] font-black text-gray-700">복구 모드</p>
+            <p className="mt-1 text-sm font-semibold text-gray-700">
+              마지막 성공 데이터를 보여주고 있어요.
+              {snapshotSavedAtLabel ? ` ${snapshotSavedAtLabel} 저장본` : ""}
+              {snapshotMeta.stationName ? ` · ${snapshotMeta.stationName} 기준` : ""}
+            </p>
+            <button
+              type="button"
+              onClick={() => fetchData(location, profile, "retry")}
+              className="mt-2 inline-flex min-h-10 items-center rounded-full border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black shadow-bento-sm transition hover:bg-gray-50"
+            >
+              최신 데이터 다시 시도
+            </button>
+          </div>
+        </section>
+      )}
+
       {isRefreshing && (
         <div className="max-w-2xl mx-auto mb-3">
           <div className="inline-flex items-center gap-2 rounded-full border-2 border-black bg-white px-3 py-1.5 shadow-bento-sm">
@@ -1157,12 +1330,20 @@ export default function Home() {
           {shouldRenderDataGrid && (
             <DataGrid
               data={{
-                pm25: data?.airQuality?.pm25_value || 0,
-                pm10: data?.airQuality?.pm10_value || 0,
-                o3: data?.airQuality?.o3_value || 0,
-                temperature: data?.airQuality?.temp || 0,
-                humidity: data?.airQuality?.humidity || 0,
-                no2: data?.airQuality?.no2_value || 0,
+                pm25: data?.airQuality?.pm25_value ?? null,
+                pm10: data?.airQuality?.pm10_value ?? null,
+                o3: data?.airQuality?.o3_value ?? null,
+                temperature: data?.airQuality?.temp ?? null,
+                humidity: data?.airQuality?.humidity ?? null,
+                no2: data?.airQuality?.no2_value ?? null,
+                co: data?.airQuality?.co_value ?? null,
+                so2: data?.airQuality?.so2_value ?? null,
+                khai: data?.airQuality?.khai_value ?? null,
+                khaiGrade: data?.airQuality?.khai_grade ?? null,
+                pm10Value24h: data?.airQuality?.pm10_value_24h ?? null,
+                pm25Value24h: data?.airQuality?.pm25_value_24h ?? null,
+                pm10Grade1h: data?.airQuality?.pm10_grade_1h ?? null,
+                pm25Grade1h: data?.airQuality?.pm25_grade_1h ?? null,
               }}
               reliabilityLabel={data?.reliability?.label}
               reliabilityDescription={data?.reliability?.description}
@@ -1177,6 +1358,12 @@ export default function Home() {
               isLoading={isProfileDataLoading}
             />
           )}
+
+          <LifestyleIndexCard
+            data={forecastData?.lifestyleIndices}
+            isLoading={isProfileDataLoading || isForecastLoading}
+            delay={1.15}
+          />
         </div>
       </div>
 
@@ -1198,11 +1385,13 @@ export default function Home() {
         </div>
       )}
 
-      <p className="max-w-2xl mx-auto text-center text-xs text-gray-600 font-medium mt-20 mb-20">
-        본 서비스는 의료적 조언이 아니며 정보 제공을 목적으로 합니다.
-        <br />
-        증상이 있다면 반드시 전문 의료진과 상의하세요.
-      </p>
+      <div className="max-w-2xl mx-auto mt-20 mb-20 space-y-3 text-center text-xs text-gray-600 font-medium">
+        <p className="text-gray-500">
+          본 서비스는 의료적 조언이 아니며 정보 제공을 목적으로 합니다.
+          <br />
+          증상이 있다면 반드시 전문 의료진과 상의하세요.
+        </p>
+      </div>
 
       <ProfileSettingsModal
         key={`settings-${settingsModalTab}-${profile?.ageGroup || "default"}-${profile?.condition || "none"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isSettingsModalOpen ? "open" : "closed"}`}
@@ -1224,6 +1413,7 @@ export default function Home() {
         humidity={clothingData?.humidity ?? data?.airQuality?.humidity}
         isForecastLoading={isForecastLoading}
         forecastItems={forecastData?.items}
+        airQualityForecast={forecastData?.airQualityForecast}
         forecastStationName={
           displayRegion || forecastData?.requestedStation || data?.airQuality?.stationName || location.stationName
         }

@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/cors';
 import { withApiObservability } from '@/lib/api-observability';
+import { applyRateLimit } from '@/lib/requestRateLimit';
+import { getSharedCache, setSharedCache } from '@/lib/sharedCache';
 
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
 const FALLBACK_TEMP = 22;
 const FALLBACK_HUMIDITY = 45;
+const CLOTHING_CACHE_SCOPE = 'route:clothing-recommendation';
+const CLOTHING_CACHE_FRESH_MS = 5 * 60 * 1000;
+const CLOTHING_CACHE_STALE_MS = 30 * 60 * 1000;
+const CLOTHING_CACHE_HARD_TTL_MS = 24 * 60 * 60 * 1000;
+const CLOTHING_TIMEOUT_MS = 4500;
 
 export const runtime = 'nodejs';
 
@@ -16,6 +23,10 @@ interface ClothingRecommendationView {
   temperature: number;
   humidity: number;
   source: string;
+}
+
+function buildServerTimingHeader(startedAt: number): string {
+  return `total;dur=${Date.now() - startedAt}`;
 }
 
 function toNumber(value: unknown, fallback: number): number {
@@ -103,25 +114,82 @@ async function handleOptions() {
 }
 
 async function handlePost(request: Request) {
+  const startedAt = Date.now();
+  const rateLimit = applyRateLimit('/api/clothing-recommendation', request);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too Many Requests' },
+      {
+        status: 429,
+        headers: {
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-degraded': '1',
+        },
+      },
+    );
+  }
+
   const body = await parseRequestBody(request);
   const temperature = toNumber(body.temperature, FALLBACK_TEMP);
   const humidity = toNumber(body.humidity, FALLBACK_HUMIDITY);
+  const cacheKey = JSON.stringify({
+    temperature: Number(temperature.toFixed(1)),
+    humidity: Number(humidity.toFixed(1)),
+    userProfile: body.userProfile ?? null,
+    airQuality: body.airQuality ?? null,
+    airGrade: body.airGrade ?? null,
+  });
+  const cached = await getSharedCache<ClothingRecommendationView>(CLOTHING_CACHE_SCOPE, cacheKey);
+  if (cached?.state === 'shared') {
+    const degraded = cached.value.source.includes('fallback');
+    return NextResponse.json(cached.value, {
+      headers: {
+        ...corsHeaders(),
+        'x-rate-limit-remaining': String(rateLimit.remaining),
+        'x-rate-limit-reset': String(rateLimit.resetAt),
+        'server-timing': buildServerTimingHeader(startedAt),
+        'x-bff-clothing-cache': 'primary=shared:hit',
+        'x-degraded': degraded ? '1' : '0',
+      },
+    });
+  }
+
+  const stale = cached ?? await getSharedCache<ClothingRecommendationView>(CLOTHING_CACHE_SCOPE, cacheKey, {
+    allowStale: true,
+  });
 
   try {
-    const response = await fetch(`${AI_API_URL}/api/clothing-recommendation`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ temperature, humidity }),
-      cache: 'no-store',
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CLOTHING_TIMEOUT_MS);
+    let raw: Record<string, unknown>;
+    try {
+      const response = await fetch(`${AI_API_URL}/api/clothing-recommendation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          temperature,
+          humidity,
+          userProfile: body.userProfile ?? null,
+          airQuality: body.airQuality ?? null,
+          airGrade: body.airGrade ?? null,
+        }),
+        cache: 'no-store',
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      throw new Error(`AI clothing API failed: ${response.status} ${response.statusText}`);
+      if (!response.ok) {
+        throw new Error(`AI clothing API failed: ${response.status} ${response.statusText}`);
+      }
+
+      raw = (await response.json()) as Record<string, unknown>;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const raw = (await response.json()) as Record<string, unknown>;
     const fallback = buildFallbackRecommendation(temperature, humidity);
 
     const result: ClothingRecommendationView = {
@@ -137,11 +205,46 @@ async function handlePost(request: Request) {
       source: typeof raw.source === 'string' ? raw.source : 'ai',
     };
 
-    return NextResponse.json(result, { headers: corsHeaders() });
+    await setSharedCache(CLOTHING_CACHE_SCOPE, cacheKey, result, {
+      freshMs: CLOTHING_CACHE_FRESH_MS,
+      staleMs: CLOTHING_CACHE_STALE_MS,
+      hardTtlMs: CLOTHING_CACHE_HARD_TTL_MS,
+    });
+
+    return NextResponse.json(result, {
+      headers: {
+        ...corsHeaders(),
+        'x-rate-limit-remaining': String(rateLimit.remaining),
+        'x-rate-limit-reset': String(rateLimit.resetAt),
+        'server-timing': buildServerTimingHeader(startedAt),
+        'x-bff-clothing-cache': 'primary=api:miss',
+        'x-degraded': result.source.includes('fallback') ? '1' : '0',
+      },
+    });
   } catch (error) {
     console.error('[BFF] Clothing recommendation error:', error);
+    if (stale?.state === 'stale') {
+      return NextResponse.json(stale.value, {
+        headers: {
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-bff-clothing-cache': 'primary=stale:hit',
+          'x-degraded': '1',
+        },
+      });
+    }
+
     return NextResponse.json(buildFallbackRecommendation(temperature, humidity), {
-      headers: corsHeaders(),
+      headers: {
+        ...corsHeaders(),
+        'x-rate-limit-remaining': String(rateLimit.remaining),
+        'x-rate-limit-reset': String(rateLimit.resetAt),
+        'server-timing': buildServerTimingHeader(startedAt),
+        'x-bff-clothing-cache': 'primary=api:miss',
+        'x-degraded': '1',
+      },
     });
   }
 }

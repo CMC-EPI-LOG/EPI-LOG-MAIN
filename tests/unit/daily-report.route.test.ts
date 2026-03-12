@@ -206,7 +206,7 @@ describe('buildReliabilityMeta', () => {
       false,
     );
     expect(meta.status).toBe('DEGRADED');
-    expect(meta.label).toBe('주변 평균 대체 데이터');
+    expect(meta.label).toBe('직전 유효 실측값 보정');
     expect(meta.aiStatus).toBe('failed');
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUserStore, type UserProfile } from "@/store/useUserStore";
 import HeroCard from "@/components/HeroCard";
@@ -12,6 +13,7 @@ import ShareButton from "@/components/ShareButton";
 import ActionChecklistCard from "@/components/ActionChecklistCard";
 import ClothingCard from "@/components/ClothingCard";
 import ClothingDetailModal from "@/components/ClothingDetailModal";
+import LifestyleIndexCard from "@/components/LifestyleIndexCard";
 import AiNotice from "@/components/AiNotice";
 import { Loader2, Settings } from "lucide-react";
 import * as Sentry from "@sentry/nextjs";
@@ -20,6 +22,7 @@ import { getCharacterPath } from "@/lib/characterUtils";
 import { getBackgroundColor } from "@/lib/colorUtils";
 import { setCoreEventContext, trackCoreEvent } from "@/lib/analytics/ga";
 import { useLogger } from "@/hooks/useLogger";
+import { loadReportSnapshot, saveReportSnapshot } from "@/lib/reportSnapshot";
 import {
   deriveDecisionSignals,
   type AirQualityView,
@@ -42,6 +45,9 @@ const DEFAULT_LOCATION_FALLBACK = {
 } as const;
 const TEST_LOCATION_EVENT = "aisoom:test-location-select";
 const LEGACY_TEST_LOCATION_EVENT = "epilog:test-location-select";
+const TEST_LOCATION_MODAL_EVENT = "aisoom:test-location-modal";
+const TEST_PROFILE_EVENT = "aisoom:test-profile-select";
+const TEST_HOOKS_READY_FLAG = "__AISOOM_TEST_HOOKS_READY__";
 
 type LoadErrorKind = "timeout" | "fetch" | null;
 type FetchCause = "initial" | "location" | "profile" | "retry";
@@ -78,10 +84,53 @@ interface WeatherForecastItem {
   sky: number | null;
 }
 
+interface AirQualityForecastItem {
+  forecastDate: string;
+  pm10Grade: string | null;
+  pm25Grade: string | null;
+  overall: string | null;
+  cause: string | null;
+  actionKnack: string | null;
+}
+
+interface AirQualityForecastData {
+  requestedRegion: string | null;
+  resolvedRegion: string | null;
+  issuedAt: string | null;
+  items: AirQualityForecastItem[];
+}
+
+interface LifestyleUvItem {
+  forecastDate: string;
+  peakValue: number | null;
+  peakLabel: string | null;
+  peakHourLabel: string | null;
+}
+
+interface LifestylePollenItem {
+  forecastDate: string;
+  overallLabel: string | null;
+  pineLabel: string | null;
+  oakLabel: string | null;
+  weedLabel: string | null;
+}
+
+interface LifestyleIndicesData {
+  requestedRegion: string | null;
+  resolvedRegion: string | null;
+  uvIssuedAt: string | null;
+  pollenIssuedAt: string | null;
+  uvItems: LifestyleUvItem[];
+  pollenItems: LifestylePollenItem[];
+  actionSummary: string | null;
+}
+
 interface WeatherForecastData {
   requestedStation: string;
   resolvedStation: string | null;
   items: WeatherForecastItem[];
+  airQualityForecast?: AirQualityForecastData | null;
+  lifestyleIndices?: LifestyleIndicesData | null;
   timestamp?: string;
 }
 
@@ -89,6 +138,19 @@ interface ReverseGeocodeResponse {
   regionName?: string;
   stationCandidate?: string;
   error?: string;
+}
+
+interface SnapshotBannerMeta {
+  savedAt: string;
+  stationName: string;
+}
+
+interface PersistedReportSnapshot {
+  profileSignature: string;
+  report: DailyReportData;
+  clothingData: ClothingRecommendationData | null;
+  forecastData: WeatherForecastData | null;
+  displayRegion: string;
 }
 
 interface HomeProps {
@@ -146,6 +208,18 @@ function buildConditionSummary(profile: UserProfile | null | undefined): string 
   return `질환: ${merged.join(', ')}`;
 }
 
+function buildSnapshotProfileSignature(profile: UserProfile | null | undefined): string {
+  const conditions = normalizeKnownConditions(profile).join('|');
+  const customConditions = (profile?.customConditions || []).map((item) => item.trim()).join('|');
+
+  return [
+    profile?.ageGroup || 'unknown',
+    profile?.condition || 'none',
+    conditions,
+    customConditions,
+  ].join('::');
+}
+
 function parseKstDataTimeToEpoch(raw?: string | null): number | null {
   if (!raw) return null;
   const matched = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
@@ -171,9 +245,11 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [settingsModalTab, setSettingsModalTab] = useState<SettingsModalTab>("age");
   const [displayRegion, setDisplayRegion] = useState(location.stationName);
   const [loadErrorKind, setLoadErrorKind] = useState<LoadErrorKind>(null);
+  const [snapshotMeta, setSnapshotMeta] = useState<SnapshotBannerMeta | null>(null);
   const [isLocationRefreshing, setIsLocationRefreshing] = useState(false);
   const [isProfileRefreshing, setIsProfileRefreshing] = useState(false);
   const [clothingData, setClothingData] = useState<ClothingRecommendationData | null>(null);
@@ -395,8 +471,10 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
 
       const result = (await res.json()) as DailyReportData;
       if (requestSeq !== requestSeqRef.current) return;
+      setSnapshotMeta(null);
       setData(result);
       void fetchClothingRecommendation(result.airQuality?.temp, result.airQuality?.humidity);
+      void fetchWeatherForecast(currentLocation.stationName);
       setLoadErrorKind(null);
     } catch (error) {
       if (requestSeq !== requestSeqRef.current) return;
@@ -408,6 +486,24 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       console.error(error);
       const isTimeoutError =
         didTimeout || (error instanceof DOMException && error.name === "AbortError");
+
+      const snapshot = loadReportSnapshot<PersistedReportSnapshot>();
+      if (
+        snapshot?.data?.report &&
+        snapshot.data.profileSignature === buildSnapshotProfileSignature(currentProfile)
+      ) {
+        setData(snapshot.data.report);
+        setClothingData(snapshot.data.clothingData);
+        setForecastData(snapshot.data.forecastData);
+        setDisplayRegion(snapshot.data.displayRegion || snapshot.stationName);
+        setSnapshotMeta({
+          savedAt: snapshot.savedAt,
+          stationName: snapshot.stationName,
+        });
+        setLoadErrorKind(null);
+        toast("마지막 성공 데이터를 보여주고 있어요.");
+        return;
+      }
 
       if (isTimeoutError) {
         setLoadErrorKind("timeout");
@@ -427,7 +523,7 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       setIsLocationRefreshing(false);
       setIsProfileRefreshing(false);
     }
-  }, [data, fetchClothingRecommendation]);
+  }, [data, fetchClothingRecommendation, fetchWeatherForecast]);
 
   const refreshAirLatest = useCallback(async () => {
     const stationName = location.stationName?.trim();
@@ -638,6 +734,7 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
   };
 
   const handleLocationSelect = useCallback((address: string, stationName: string) => {
+    setIsLocationModalOpen(false);
     setDisplayRegion(address);
     void logAddressConsent(true);
     const newLocation = { ...location, stationName };
@@ -662,13 +759,60 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       handleLocationSelect(address, stationName);
     };
 
+    const testProfileHandler = (event: Event) => {
+      const customEvent = event as CustomEvent<{ profile?: UserProfile }>;
+      const nextProfile = customEvent.detail?.profile;
+      if (!nextProfile?.ageGroup) return;
+      commitProfileChange({
+        nickname: nextProfile.nickname || "",
+        ageGroup: nextProfile.ageGroup,
+        condition: nextProfile.condition || "none",
+        conditions: nextProfile.conditions,
+        customConditions: nextProfile.customConditions,
+      });
+    };
+
+    const testLocationModalHandler = (event: Event) => {
+      const customEvent = event as CustomEvent<{ open?: boolean }>;
+      setIsLocationModalOpen(Boolean(customEvent.detail?.open));
+    };
+
     window.addEventListener(TEST_LOCATION_EVENT, testLocationHandler);
     window.addEventListener(LEGACY_TEST_LOCATION_EVENT, testLocationHandler);
+    window.addEventListener(TEST_LOCATION_MODAL_EVENT, testLocationModalHandler);
+    window.addEventListener(TEST_PROFILE_EVENT, testProfileHandler);
+    (window as typeof window & { [TEST_HOOKS_READY_FLAG]?: boolean })[TEST_HOOKS_READY_FLAG] = true;
     return () => {
       window.removeEventListener(TEST_LOCATION_EVENT, testLocationHandler);
       window.removeEventListener(LEGACY_TEST_LOCATION_EVENT, testLocationHandler);
+      window.removeEventListener(TEST_LOCATION_MODAL_EVENT, testLocationModalHandler);
+      window.removeEventListener(TEST_PROFILE_EVENT, testProfileHandler);
+      (window as typeof window & { [TEST_HOOKS_READY_FLAG]?: boolean })[TEST_HOOKS_READY_FLAG] = false;
     };
-  }, [data, handleLocationSelect]);
+  }, [commitProfileChange, data, handleLocationSelect]);
+
+  useEffect(() => {
+    if (!data || snapshotMeta) return;
+
+    saveReportSnapshot(
+      data.airQuality?.stationName || location.stationName || DEFAULT_LOCATION_FALLBACK.stationName,
+      {
+        profileSignature: buildSnapshotProfileSignature(profile),
+        report: data,
+        clothingData,
+        forecastData,
+        displayRegion,
+      },
+    );
+  }, [
+    clothingData,
+    data,
+    displayRegion,
+    forecastData,
+    location.stationName,
+    profile,
+    snapshotMeta,
+  ]);
 
   // Dynamic background color based on air quality
   const bgColor = data?.airQuality?.grade
@@ -714,6 +858,19 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
     : isProfileRefreshing
       ? "연령/질환 조건 반영 중..."
       : "데이터 업데이트 중...";
+  const snapshotSavedAtLabel = useMemo(() => {
+    if (!snapshotMeta?.savedAt) return null;
+
+    const parsed = new Date(snapshotMeta.savedAt);
+    if (Number.isNaN(parsed.getTime())) return null;
+
+    return parsed.toLocaleString("ko-KR", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }, [snapshotMeta?.savedAt]);
   const heroLoadingCaption = isLocationRefreshing
     ? `${displayRegion} 기준으로 데이터 업데이트 중`
     : isProfileRefreshing
@@ -725,9 +882,26 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
         minute: "2-digit",
       })
     : undefined;
-  const measurementRegion = data?.airQuality?.stationName
-    ? [data.airQuality.sidoName, data.airQuality.stationName].filter(Boolean).join(" ")
-    : undefined;
+  const measurementRegion = useMemo(() => {
+    const resolvedStation = data?.reliability?.resolvedStation?.trim() || data?.airQuality?.stationName?.trim();
+    if (!resolvedStation) return undefined;
+
+    const resolvedLabel = [data?.airQuality?.sidoName, resolvedStation].filter(Boolean).join(" ");
+    const requestedStation = data?.reliability?.requestedStation?.trim();
+    const displayLocation = displayRegion?.trim() || requestedStation;
+
+    if (requestedStation && requestedStation !== resolvedStation) {
+      return `현재 위치 ${displayLocation || requestedStation} · 측정소 ${resolvedLabel}`;
+    }
+
+    return resolvedLabel;
+  }, [
+    data?.airQuality?.sidoName,
+    data?.airQuality?.stationName,
+    data?.reliability?.requestedStation,
+    data?.reliability?.resolvedStation,
+    displayRegion,
+  ]);
   const measurementDataTime = data?.airQuality?.dataTime ?? undefined;
   const freshnessMeta = useMemo(() => {
     const measuredAtMillis = parseKstDataTimeToEpoch(data?.airQuality?.dataTime);
@@ -813,7 +987,7 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       clothingData?.temperature ?? data?.airQuality?.temp,
       clothingData?.humidity ?? data?.airQuality?.humidity,
     );
-    void fetchWeatherForecast(data?.airQuality?.stationName ?? location.stationName);
+    void fetchWeatherForecast(location.stationName || data?.airQuality?.stationName);
   }, [
     clothingData?.humidity,
     clothingData?.temperature,
@@ -830,7 +1004,7 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       clothingData?.temperature ?? data?.airQuality?.temp,
       clothingData?.humidity ?? data?.airQuality?.humidity,
     );
-    void fetchWeatherForecast(data?.airQuality?.stationName ?? location.stationName);
+    void fetchWeatherForecast(location.stationName || data?.airQuality?.stationName);
   }, [
     clothingData?.humidity,
     clothingData?.temperature,
@@ -942,20 +1116,22 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       {/* Header */}
       <header className="max-w-2xl mx-auto mb-4 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 pb-3 border-b-2 border-black">
         <div className="min-w-0 justify-self-start flex items-center gap-2 font-brand text-2xl font-black tracking-tight">
-          <img
+          <Image
             src="/icon.png"
             alt="아이숨 로고"
             width={28}
             height={28}
             className="h-7 w-7 rounded-md border border-black/10 bg-white object-cover"
             loading="eager"
-            decoding="async"
           />
           <span>아이숨</span>
         </div>
 
         <LocationHeader
           currentLocation={displayRegion}
+          isSearchOpen={isLocationModalOpen}
+          onOpenSearch={() => setIsLocationModalOpen(true)}
+          onCloseSearch={() => setIsLocationModalOpen(false)}
           onLocationSelect={handleLocationSelect}
         />
         
@@ -972,6 +1148,26 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       </header>
 
       <AiNotice />
+
+      {snapshotMeta && (
+        <section className="mx-auto mb-3 max-w-2xl" data-testid="stale-snapshot-banner">
+          <div className="rounded-[20px] border-2 border-black bg-[#FFF1CC] px-4 py-3 shadow-bento-sm">
+            <p className="text-[11px] font-black text-gray-700">복구 모드</p>
+            <p className="mt-1 text-sm font-semibold text-gray-700">
+              마지막 성공 데이터를 보여주고 있어요.
+              {snapshotSavedAtLabel ? ` ${snapshotSavedAtLabel} 저장본` : ""}
+              {snapshotMeta.stationName ? ` · ${snapshotMeta.stationName} 기준` : ""}
+            </p>
+            <button
+              type="button"
+              onClick={() => fetchData(location, profile, "retry")}
+              className="mt-2 inline-flex min-h-10 items-center rounded-full border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black shadow-bento-sm transition hover:bg-gray-50"
+            >
+              최신 데이터 다시 시도
+            </button>
+          </div>
+        </section>
+      )}
 
       {isRefreshing && (
         <div className="max-w-2xl mx-auto mb-3">
@@ -1060,12 +1256,20 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
         {shouldRenderDataGrid && (
           <DataGrid
             data={{
-              pm25: data?.airQuality?.pm25_value || 0,
-              pm10: data?.airQuality?.pm10_value || 0,
-              o3: data?.airQuality?.o3_value || 0,
-              temperature: data?.airQuality?.temp || 0,
-              humidity: data?.airQuality?.humidity || 0,
-              no2: data?.airQuality?.no2_value || 0,
+              pm25: data?.airQuality?.pm25_value ?? null,
+              pm10: data?.airQuality?.pm10_value ?? null,
+              o3: data?.airQuality?.o3_value ?? null,
+              temperature: data?.airQuality?.temp ?? null,
+              humidity: data?.airQuality?.humidity ?? null,
+              no2: data?.airQuality?.no2_value ?? null,
+              co: data?.airQuality?.co_value ?? null,
+              so2: data?.airQuality?.so2_value ?? null,
+              khai: data?.airQuality?.khai_value ?? null,
+              khaiGrade: data?.airQuality?.khai_grade ?? null,
+              pm10Value24h: data?.airQuality?.pm10_value_24h ?? null,
+              pm25Value24h: data?.airQuality?.pm25_value_24h ?? null,
+              pm10Grade1h: data?.airQuality?.pm10_grade_1h ?? null,
+              pm25Grade1h: data?.airQuality?.pm25_grade_1h ?? null,
             }}
             reliabilityLabel={data?.reliability?.label}
             reliabilityDescription={data?.reliability?.description}
@@ -1080,6 +1284,12 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
             isLoading={isProfileDataLoading}
           />
         )}
+
+        <LifestyleIndexCard
+          data={forecastData?.lifestyleIndices}
+          isLoading={isProfileDataLoading || isForecastLoading}
+          delay={1.15}
+        />
         </div>
       </div>
 
@@ -1102,12 +1312,13 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
         </div>
       )}
 
-      {/* Disclaimer */}
-      <p className="max-w-2xl mx-auto text-center text-xs text-gray-600 font-medium mt-20 mb-20">
-        본 서비스는 의료적 조언이 아니며 정보 제공을 목적으로 합니다.
-        <br />
-        증상이 있다면 반드시 전문 의료진과 상의하세요.
-      </p>
+      <div className="max-w-2xl mx-auto mt-20 mb-20 space-y-3 text-center text-xs text-gray-600 font-medium">
+        <p className="text-gray-500">
+          본 서비스는 의료적 조언이 아니며 정보 제공을 목적으로 합니다.
+          <br />
+          증상이 있다면 반드시 전문 의료진과 상의하세요.
+        </p>
+      </div>
 
       <ProfileSettingsModal
         key={`settings-${settingsModalTab}-${profile?.ageGroup || "default"}-${profile?.condition || "none"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isSettingsModalOpen ? "open" : "closed"}`}
@@ -1130,6 +1341,7 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
           humidity={clothingData?.humidity ?? data?.airQuality?.humidity}
           isForecastLoading={isForecastLoading}
           forecastItems={forecastData?.items}
+          airQualityForecast={forecastData?.airQualityForecast}
           forecastStationName={
             displayRegion || forecastData?.requestedStation || data?.airQuality?.stationName || location.stationName
           }

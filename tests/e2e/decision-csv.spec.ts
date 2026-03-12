@@ -122,19 +122,13 @@ function loadDecisionCsv(): DecisionCsvRow[] {
   });
 }
 
-function ageButtonName(ageGroup: AgeGroupCode): RegExp {
-  if (ageGroup === 'infant') return /영아/;
-  if (ageGroup === 'toddler') return /유아/;
-  if (ageGroup === 'elementary_low') return /초등 저학년/;
-  if (ageGroup === 'elementary_high') return /초등 고학년/;
-  return /청소년\/성인/;
+async function gotoHome(page: Page) {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
 }
 
-function conditionButtonName(condition: ConditionCode): RegExp {
-  if (condition === 'none') return /해당 없음/;
-  if (condition === 'rhinitis') return /알레르기 비염/;
-  if (condition === 'asthma') return /천식/;
-  return /아토피/;
+async function waitForHydratedDashboard(page: Page) {
+  await expect(page.getByText('아이를 위한 오늘의 액션')).toBeVisible();
+  await page.waitForFunction(() => (window as Window & { __AISOOM_TEST_HOOKS_READY__?: boolean }).__AISOOM_TEST_HOOKS_READY__ === true);
 }
 
 function gradeMetrics(grade: AirGradeCode) {
@@ -202,32 +196,20 @@ function buildDailyReportPayload(scenario: Scenario) {
 }
 
 async function selectProfile(page: Page, scenario: Scenario) {
-  const settingsButton = page.getByTestId('settings-button');
-  const settingsModal = page.getByTestId('settings-modal');
-  const conditionTrigger = page.getByTestId('hero-condition-open');
-
-  await settingsButton.click();
-  if (!(await settingsModal.isVisible())) {
-    await settingsButton.click();
-  }
-  await expect(settingsModal).toBeVisible();
-
-  await settingsModal.getByTestId('settings-tab-age').click();
-  await settingsModal.getByRole('button', { name: ageButtonName(scenario.expectedAgeGroup) }).click();
-  await settingsModal.getByTestId('settings-submit').click();
-  await expect(settingsModal).toBeHidden();
-
-  await expect(conditionTrigger).toBeVisible();
-  await conditionTrigger.click();
-  await expect(settingsModal).toBeVisible();
-
-  await settingsModal.getByTestId('settings-tab-condition').click();
-  await settingsModal.getByRole('button', { name: /해당 없음/ }).click();
-  if (scenario.expectedCondition !== 'none') {
-    await settingsModal.getByRole('button', { name: conditionButtonName(scenario.expectedCondition) }).click();
-  }
-  await settingsModal.getByTestId('settings-submit').click();
-  await expect(settingsModal).toBeHidden();
+  await waitForHydratedDashboard(page);
+  await page.evaluate((profile) => {
+    window.dispatchEvent(
+      new CustomEvent('aisoom:test-profile-select', {
+        detail: { profile },
+      }),
+    );
+  }, {
+    nickname: '',
+    ageGroup: scenario.expectedAgeGroup,
+    condition: scenario.expectedCondition,
+    conditions: scenario.expectedCondition === 'none' ? ['none'] : [scenario.expectedCondition],
+    customConditions: [],
+  });
 }
 
 test.describe('CSV Decision Matrix E2E', () => {
@@ -273,8 +255,49 @@ test.describe('CSV Decision Matrix E2E', () => {
       });
     });
 
-    await page.goto('/');
-    await expect(page.getByText('아이를 위한 오늘의 액션')).toBeVisible();
+    await page.route('**/api/clothing-recommendation', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          summary: '테스트용 복장 안내',
+          recommendation: '가벼운 겉옷을 준비하세요.',
+          tips: ['CSV 시나리오 검증용 고정 응답입니다.'],
+          comfortLevel: 'MILD',
+          temperature: 22,
+          humidity: 45,
+          source: 'decision-csv-mock',
+        }),
+      });
+    });
+
+    await page.route('**/api/weather-forecast**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          requestedStation: '중구',
+          resolvedStation: '중구',
+          triedStations: ['중구'],
+          windowHours: 48,
+          items: [],
+          airQualityForecast: null,
+          lifestyleIndices: null,
+          timestamp: '2026-02-27T09:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.route('**/api/log**', async (route) => {
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
+    });
+
+    await gotoHome(page);
+    await waitForHydratedDashboard(page);
 
     for (const row of CSV_ROWS) {
       const scenario = toScenario(row);
@@ -285,6 +308,7 @@ test.describe('CSV Decision Matrix E2E', () => {
 
       await expect.poll(() => matchedProfileRequest, { timeout: 10_000 }).toBe(true);
 
+      await expect(page.getByTestId('hero-main-text')).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId('hero-main-text')).toHaveText(row.메인문구);
       await expect(page.getByText(row.행동1, { exact: true })).toBeVisible();
       await expect(page.getByText(row.행동2, { exact: true })).toBeVisible();

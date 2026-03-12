@@ -17,7 +17,7 @@ interface BeforeInstallPromptEvent extends Event {
 
 export default function InstallPrompt() {
   // Apps in Toss policy: do not encourage installing a separate app/PWA.
-  if (process.env.NEXT_PUBLIC_PLATFORM === 'TOSS') return null;
+  const isTossPlatform = process.env.NEXT_PUBLIC_PLATFORM === 'TOSS';
   const userAgent =
     typeof window !== 'undefined' ? window.navigator.userAgent.toLowerCase() : '';
   const isKakaoTalkInApp = userAgent.includes('kakaotalk');
@@ -70,6 +70,7 @@ export default function InstallPrompt() {
     }
   };
 
+  if (isTossPlatform) return null;
   if (!isVisible) return null;
 
   return (
@@ -92,7 +93,7 @@ export default function InstallPrompt() {
               <p className="font-bold text-lg">앱으로 더 편하게 보세요! 📲</p>
               <div className="flex items-center gap-2 text-sm bg-gray-100 p-2 rounded-lg">
                 <Share size={20} /> 버튼을 누르고 <br/>
-                <PlusSquare size={20} /> <strong>'홈 화면에 추가'</strong> 선택
+                <PlusSquare size={20} /> <strong>&apos;홈 화면에 추가&apos;</strong> 선택
               </div>
               <div className="animate-bounce mt-2">
                 👇

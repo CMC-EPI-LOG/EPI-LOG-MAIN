@@ -2,32 +2,34 @@ import { NextResponse } from 'next/server';
 import { buildReliabilityMeta, type AirFetchResult } from '@/lib/dailyReportDecision';
 import { corsHeaders } from '@/lib/cors';
 import { withApiObservability } from '@/lib/api-observability';
-import {
-  buildStationCandidates,
-  inferExpectedSido,
-  isSidoMismatch,
-} from '@/lib/stationResolution';
-
-const DATA_API_URL = process.env.NEXT_PUBLIC_DATA_API_URL || 'https://epi-log-ai.vercel.app';
+import { loadAirQualityFromMongo } from '@/lib/airQualityMongo';
+import { applyRateLimit } from '@/lib/requestRateLimit';
+import { getSharedCache, setSharedCache } from '@/lib/sharedCache';
+import { buildStationCandidates, inferExpectedSido } from '@/lib/stationResolution';
 const FALLBACK_TEMP = 22;
 const FALLBACK_HUMIDITY = 45;
+const AIR_ROUTE_CACHE_SCOPE = 'route:air-quality-latest';
+const AIR_ROUTE_FRESH_MS = 3 * 60 * 1000;
+const AIR_ROUTE_STALE_MS = 15 * 60 * 1000;
+const AIR_ROUTE_HARD_TTL_MS = 24 * 60 * 60 * 1000;
 
-// When an upstream returns this exact signature, we treat it as "unknown station" and try next candidate.
-const UNKNOWN_STATION_SIGNATURE = {
-  pm25_value: 65,
-  pm10_value: 85,
-  o3_value: 0.065,
-  no2_value: 0.025,
-};
+function buildServerTimingHeader(startedAt: number): string {
+  return `total;dur=${Date.now() - startedAt}`;
+}
 
 interface AirQualityRaw {
   sidoName?: string;
   stationName?: string;
+  mang_name?: string | null;
   dataTime?: string;
   pm25_grade?: string;
   pm25_value?: number;
   pm10_grade?: string;
   pm10_value?: number;
+  pm25_value_24h?: number;
+  pm10_value_24h?: number;
+  pm10_grade_1h?: string;
+  pm25_grade_1h?: string;
   o3_grade?: string;
   o3_value?: number;
   no2_grade?: string;
@@ -36,6 +38,14 @@ interface AirQualityRaw {
   co_value?: number;
   so2_grade?: string;
   so2_value?: number;
+  khai_value?: number;
+  khai_grade?: string;
+  pm10_flag?: string | null;
+  pm25_flag?: string | null;
+  o3_flag?: string | null;
+  no2_flag?: string | null;
+  co_flag?: string | null;
+  so2_flag?: string | null;
   temp?: number;
   temperature?: number;
   humidity?: number;
@@ -44,15 +54,28 @@ interface AirQualityRaw {
 interface AirQualityView {
   sidoName?: string | null;
   stationName: string;
+  mang_name?: string | null;
   dataTime?: string | null;
   grade: 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD';
   value?: number;
   pm25_value?: number;
   pm10_value?: number;
+  pm25_value_24h?: number;
+  pm10_value_24h?: number;
   o3_value?: number;
   no2_value?: number;
   co_value?: number;
   so2_value?: number;
+  khai_value?: number;
+  khai_grade?: string;
+  pm10_grade_1h?: string;
+  pm25_grade_1h?: string;
+  pm10_flag?: string | null;
+  pm25_flag?: string | null;
+  o3_flag?: string | null;
+  no2_flag?: string | null;
+  co_flag?: string | null;
+  so2_flag?: string | null;
   temp?: number;
   humidity?: number;
   detail: {
@@ -63,83 +86,29 @@ interface AirQualityView {
   } | null;
 }
 
-function isUnknownStationSignature(data: AirQualityRaw | null): boolean {
-  if (!data) return false;
-  return (
-    Number(data.pm25_value) === UNKNOWN_STATION_SIGNATURE.pm25_value &&
-    Number(data.pm10_value) === UNKNOWN_STATION_SIGNATURE.pm10_value &&
-    Math.abs(Number(data.o3_value) - UNKNOWN_STATION_SIGNATURE.o3_value) < 0.000001 &&
-    Math.abs(Number(data.no2_value) - UNKNOWN_STATION_SIGNATURE.no2_value) < 0.000001
-  );
-}
-
 async function fetchAirDataWithStationFallback(stationName: string): Promise<AirFetchResult> {
   const candidates = buildStationCandidates(stationName);
   const expectedSido = inferExpectedSido(stationName);
-  let fallbackResult: { data: AirQualityRaw; resolvedStation: string; candidate: string } | null = null;
-  const unknownSignatureCandidates: string[] = [];
+  const mongoResult = await loadAirQualityFromMongo(candidates, expectedSido);
 
-  for (const candidate of candidates) {
-    try {
-      const response = await fetch(
-        `${DATA_API_URL}/api/air-quality?stationName=${encodeURIComponent(candidate)}`,
-        { cache: 'no-store' },
-      );
-
-      if (!response.ok) {
-        console.error(
-          '[BFF] Air API Failed:',
-          response.status,
-          response.statusText,
-          `candidate=${candidate}`,
-        );
-        continue;
-      }
-
-      const parsed = (await response.json()) as AirQualityRaw;
-      const resolvedStationName = parsed.stationName || candidate;
-
-      if (isSidoMismatch(expectedSido, parsed.sidoName ?? null)) {
-        console.warn(
-          `[BFF] Sido mismatch for candidate "${candidate}" (expected=${expectedSido}, resolved=${parsed.sidoName}), skipping`,
-        );
-        continue;
-      }
-
-      if (!fallbackResult) {
-        fallbackResult = { data: parsed, resolvedStation: resolvedStationName, candidate };
-      }
-
-      if (isUnknownStationSignature(parsed)) {
-        unknownSignatureCandidates.push(candidate);
-        console.warn(
-          `[BFF] Unknown station signature detected for "${candidate}", trying next candidate`,
-        );
-        continue;
-      }
-
-      return {
-        data: parsed,
-        resolvedStation: resolvedStationName,
-        triedStations: candidates,
-        usedFallbackCandidate: candidate !== candidates[0],
-        usedFallbackData: false,
-        unknownSignatureCandidates,
-      };
-    } catch (error) {
-      console.error('[BFF] Air API Error:', error, `candidate=${candidate}`);
-    }
+  if (mongoResult) {
+    return {
+      data: mongoResult.raw,
+      resolvedStation: mongoResult.resolvedStation,
+      triedStations: candidates,
+      usedFallbackCandidate: mongoResult.resolvedStation !== candidates[0],
+      usedFallbackData: mongoResult.usedFallbackData,
+      unknownSignatureCandidates: [],
+    };
   }
 
   return {
-    data: fallbackResult?.data || null,
-    resolvedStation: fallbackResult?.resolvedStation || stationName,
+    data: null,
+    resolvedStation: stationName,
     triedStations: candidates,
-    usedFallbackCandidate: Boolean(
-      fallbackResult && fallbackResult.candidate !== candidates[0],
-    ),
-    usedFallbackData: Boolean(fallbackResult),
-    unknownSignatureCandidates,
+    usedFallbackCandidate: false,
+    usedFallbackData: false,
+    unknownSignatureCandidates: [],
   };
 }
 
@@ -170,6 +139,7 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
   return {
     sidoName: raw.sidoName ?? null,
     stationName: raw.stationName || fallbackStation,
+    mang_name: raw.mang_name ?? null,
     dataTime: raw.dataTime ?? null,
     grade:
       worstGrade === 4
@@ -182,10 +152,22 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
     value: raw.pm10_value,
     pm25_value: raw.pm25_value,
     pm10_value: raw.pm10_value,
+    pm25_value_24h: raw.pm25_value_24h,
+    pm10_value_24h: raw.pm10_value_24h,
     o3_value: raw.o3_value,
     no2_value: raw.no2_value,
     co_value: raw.co_value,
     so2_value: raw.so2_value,
+    khai_value: raw.khai_value,
+    khai_grade: raw.khai_grade,
+    pm10_grade_1h: raw.pm10_grade_1h,
+    pm25_grade_1h: raw.pm25_grade_1h,
+    pm10_flag: raw.pm10_flag ?? null,
+    pm25_flag: raw.pm25_flag ?? null,
+    o3_flag: raw.o3_flag ?? null,
+    no2_flag: raw.no2_flag ?? null,
+    co_flag: raw.co_flag ?? null,
+    so2_flag: raw.so2_flag ?? null,
     temp: raw.temp ?? raw.temperature ?? FALLBACK_TEMP,
     humidity: raw.humidity ?? FALLBACK_HUMIDITY,
     detail: {
@@ -205,32 +187,126 @@ async function handleOptions() {
 }
 
 async function handleGet(request: Request) {
+  const startedAt = Date.now();
+  const rateLimit = applyRateLimit('/api/air-quality-latest', request);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too Many Requests' },
+      {
+        status: 429,
+        headers: {
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-degraded': '1',
+        },
+      },
+    );
+  }
+
   const url = new URL(request.url);
   const stationName = url.searchParams.get('stationName')?.trim();
   if (!stationName) {
     return NextResponse.json(
       { error: 'Missing stationName' },
-      { status: 400, headers: corsHeaders() },
+      {
+        status: 400,
+        headers: {
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-degraded': '1',
+        },
+      },
     );
   }
 
-  const airFetch = await fetchAirDataWithStationFallback(stationName);
-  const airQuality = toViewAirData(airFetch.data as AirQualityRaw | null, airFetch.resolvedStation);
-  const reliability = buildReliabilityMeta(stationName, airFetch, true);
-
-  return NextResponse.json(
-    {
-      airQuality,
-      reliability,
-      timestamp: new Date().toISOString(),
-    },
-    {
+  const cacheKey = stationName.toLowerCase();
+  const cached = await getSharedCache<{
+    airQuality: AirQualityView;
+    reliability: ReturnType<typeof buildReliabilityMeta>;
+    timestamp: string;
+  }>(AIR_ROUTE_CACHE_SCOPE, cacheKey);
+  if (cached?.state === 'shared') {
+    return NextResponse.json(cached.value, {
       headers: {
         'Cache-Control': 'no-store, max-age=0',
         ...corsHeaders(),
+        'x-rate-limit-remaining': String(rateLimit.remaining),
+        'x-rate-limit-reset': String(rateLimit.resetAt),
+        'server-timing': buildServerTimingHeader(startedAt),
+        'x-bff-air-cache': 'primary=shared:hit',
+        'x-degraded': cached.value.reliability.status === 'LIVE' ? '0' : '1',
       },
-    },
-  );
+    });
+  }
+
+  const stale = cached ?? await getSharedCache<{
+    airQuality: AirQualityView;
+    reliability: ReturnType<typeof buildReliabilityMeta>;
+    timestamp: string;
+  }>(AIR_ROUTE_CACHE_SCOPE, cacheKey, { allowStale: true });
+
+  try {
+    const airFetch = await fetchAirDataWithStationFallback(stationName);
+    const airQuality = toViewAirData(airFetch.data as AirQualityRaw | null, airFetch.resolvedStation);
+    const reliability = buildReliabilityMeta(stationName, airFetch, true);
+    const payload = {
+      airQuality,
+      reliability,
+      timestamp: new Date().toISOString(),
+    };
+
+    await setSharedCache(AIR_ROUTE_CACHE_SCOPE, cacheKey, payload, {
+      freshMs: AIR_ROUTE_FRESH_MS,
+      staleMs: AIR_ROUTE_STALE_MS,
+      hardTtlMs: AIR_ROUTE_HARD_TTL_MS,
+    });
+
+    return NextResponse.json(payload, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+        ...corsHeaders(),
+        'x-rate-limit-remaining': String(rateLimit.remaining),
+        'x-rate-limit-reset': String(rateLimit.resetAt),
+        'server-timing': buildServerTimingHeader(startedAt),
+        'x-bff-air-cache': 'primary=api:miss',
+        'x-degraded': reliability.status === 'LIVE' ? '0' : '1',
+      },
+    });
+  } catch (error) {
+    console.error('[api/air-quality-latest] failed:', error);
+    if (stale?.state === 'stale') {
+      return NextResponse.json(stale.value, {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-bff-air-cache': 'primary=stale:hit',
+          'x-degraded': '1',
+        },
+      });
+    }
+
+    return NextResponse.json(
+      { error: 'Failed to load air quality' },
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-bff-air-cache': 'primary=api:miss',
+          'x-degraded': '1',
+        },
+      },
+    );
+  }
 }
 
 export const OPTIONS = withApiObservability('/api/air-quality-latest', 'OPTIONS', handleOptions);
