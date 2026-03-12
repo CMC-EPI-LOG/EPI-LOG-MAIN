@@ -10,6 +10,14 @@ export async function getMongoClient() {
   return clientPromise;
 }
 
+export async function closeMongoClient() {
+  if (!clientPromise) return;
+
+  const client = await clientPromise;
+  clientPromise = null;
+  await client.close();
+}
+
 export async function getCollection<T extends Document>(dbName: string, collectionName: string) {
   const client = await getMongoClient();
   return client.db(dbName).collection<T>(collectionName);
