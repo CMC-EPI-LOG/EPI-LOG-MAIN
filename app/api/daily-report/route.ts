@@ -4,6 +4,8 @@ import { buildReliabilityMeta, deriveDecisionSignals } from '@/lib/dailyReportDe
 import { corsHeaders } from '@/lib/cors';
 import { withApiObservability } from '@/lib/api-observability';
 import { loadAirQualityFromMongo } from '@/lib/airQualityMongo';
+import { applyRateLimit } from '@/lib/requestRateLimit';
+import { getSharedCache, setSharedCache } from '@/lib/sharedCache';
 import { buildStationCandidates, inferExpectedSido } from '@/lib/stationResolution';
 const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
 const FALLBACK_TEMP = 22;
@@ -37,11 +39,14 @@ const AI_PRIMARY_RETRY_BACKOFF_MS = parseNonNegativeIntEnv(
   process.env.DAILY_REPORT_AI_PRIMARY_RETRY_BACKOFF_MS,
   150,
 );
-const AI_RETRY_TIMEOUT_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AI_RETRY_TIMEOUT_MS, 900);
 const AIR_FETCH_MAX_CANDIDATES = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_MAX_CANDIDATES, 6);
 const AIR_BFF_CACHE_TTL_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_CACHE_TTL_MS, 3 * 60 * 1000);
 const AIR_BFF_CACHE_MAX_ENTRIES = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_CACHE_MAX_ENTRIES, 200);
 const AIR_BFF_CACHE_STALE_MS = parsePositiveIntEnv(process.env.DAILY_REPORT_AIR_CACHE_STALE_MS, 15 * 60 * 1000);
+const SHARED_CACHE_HARD_TTL_MS = parsePositiveIntEnv(
+  process.env.BFF_SHARED_CACHE_HARD_TTL_MS,
+  24 * 60 * 60 * 1000,
+);
 
 const UNKNOWN_STATION_SIGNATURE = {
   pm25_value: 65,
@@ -156,7 +161,7 @@ const AI_METRIC_MISMATCH_TOLERANCE: Record<NumericMetricKey, number> = {
   no2_value: 0.001,
 };
 
-type AirCacheSource = 'api' | 'memory' | 'inflight' | 'stale';
+type AirCacheSource = 'api' | 'memory' | 'shared' | 'inflight' | 'stale';
 
 interface CachedAirFetchEntry {
   data: AirFetchResult;
@@ -186,7 +191,7 @@ interface AiGuideView {
   no2_value?: number;
 }
 
-type AiCacheSource = 'api' | 'memory' | 'inflight' | 'stale';
+type AiCacheSource = 'api' | 'memory' | 'shared' | 'inflight' | 'stale';
 
 interface CachedAiGuideEntry {
   data: AiGuideView;
@@ -232,6 +237,8 @@ const aiGuideCache = new Map<string, CachedAiGuideEntry>();
 const aiGuideInFlight = new Map<string, Promise<AiApiGuideResult>>();
 const airFetchCache = new Map<string, CachedAirFetchEntry>();
 const airFetchInFlight = new Map<string, Promise<AirFetchResult>>();
+const AIR_SHARED_CACHE_SCOPE = 'bff:air-fetch';
+const AI_SHARED_CACHE_SCOPE = 'bff:ai-guide';
 
 function formatTimingLog(timing: Record<string, number>): string {
   return Object.entries(timing)
@@ -509,7 +516,7 @@ function pruneExpiredAirCache(now = Date.now()): void {
   }
 }
 
-function getCachedAirFetch(cacheKey: string): AirFetchWithCacheResult | null {
+function getMemoryCachedAirFetch(cacheKey: string): AirFetchWithCacheResult | null {
   pruneExpiredAirCache();
   const entry = airFetchCache.get(cacheKey);
   if (!entry) return null;
@@ -530,6 +537,41 @@ function getCachedAirFetch(cacheKey: string): AirFetchWithCacheResult | null {
     cacheHit: true,
     cacheSource,
   };
+}
+
+async function getCachedAirFetch(
+  cacheKey: string,
+  options?: { allowStale?: boolean },
+): Promise<AirFetchWithCacheResult | null> {
+  const memory = getMemoryCachedAirFetch(cacheKey);
+  if (memory?.cacheSource === 'memory') {
+    return memory;
+  }
+
+  const shared = await getSharedCache<AirFetchResult>(AIR_SHARED_CACHE_SCOPE, cacheKey, {
+    allowStale: options?.allowStale ?? Boolean(memory && memory.cacheSource === 'stale'),
+  });
+  if (shared?.state === 'shared') {
+    setCachedAirFetch(cacheKey, shared.value);
+    return {
+      data: shared.value,
+      cacheHit: true,
+      cacheSource: 'shared',
+    };
+  }
+
+  if (memory) return memory;
+
+  if (shared?.state === 'stale') {
+    setCachedAirFetch(cacheKey, shared.value);
+    return {
+      data: shared.value,
+      cacheHit: true,
+      cacheSource: 'stale',
+    };
+  }
+
+  return null;
 }
 
 function setCachedAirFetch(cacheKey: string, data: AirFetchResult): void {
@@ -558,7 +600,7 @@ function pruneExpiredAiCache(now = Date.now()): void {
   }
 }
 
-function getCachedAiGuide(
+function getMemoryCachedAiGuide(
   cacheKey: string,
   options?: { allowStale?: boolean },
 ): { data: AiGuideView; source: 'memory' | 'stale' } | null {
@@ -582,6 +624,39 @@ function getCachedAiGuide(
     data: entry.data,
     source: entry.expiresAt > now ? 'memory' : 'stale',
   };
+}
+
+async function getCachedAiGuide(
+  cacheKey: string,
+  options?: { allowStale?: boolean },
+): Promise<{ data: AiGuideView; source: 'memory' | 'shared' | 'stale' } | null> {
+  const memory = getMemoryCachedAiGuide(cacheKey, options);
+  if (memory?.source === 'memory') {
+    return memory;
+  }
+
+  const shared = await getSharedCache<AiGuideView>(AI_SHARED_CACHE_SCOPE, cacheKey, {
+    allowStale: options?.allowStale ?? Boolean(memory?.source === 'stale'),
+  });
+  if (shared?.state === 'shared') {
+    setCachedAiGuide(cacheKey, shared.value);
+    return {
+      data: shared.value,
+      source: 'shared',
+    };
+  }
+
+  if (memory) return memory;
+
+  if (shared?.state === 'stale') {
+    setCachedAiGuide(cacheKey, shared.value);
+    return {
+      data: shared.value,
+      source: 'stale',
+    };
+  }
+
+  return null;
 }
 
 function isCacheableAiGuide(data: AiGuideView): boolean {
@@ -618,6 +693,21 @@ function formatAiCacheState(cacheState: { source: AiCacheSource; hit: boolean })
 
 function formatAirCacheState(cacheState: { source: AirCacheSource; hit: boolean }): string {
   return `${cacheState.source}:${cacheState.hit ? 'hit' : 'miss'}`;
+}
+
+function buildRateLimitHeaders(result: ReturnType<typeof applyRateLimit>) {
+  return {
+    'x-rate-limit-remaining': String(result.remaining),
+    'x-rate-limit-reset': String(result.resetAt),
+  };
+}
+
+function buildSharedCachePolicy(freshMs: number, staleMs: number) {
+  return {
+    freshMs,
+    staleMs,
+    hardTtlMs: SHARED_CACHE_HARD_TTL_MS,
+  };
 }
 
 
@@ -780,8 +870,8 @@ async function fetchAirDataWithStationFallback(stationName: string): Promise<Air
 
 async function fetchAirData(stationName: string): Promise<AirFetchWithCacheResult> {
   const cacheKey = buildAirCacheKey(stationName);
-  const cached = getCachedAirFetch(cacheKey);
-  if (cached && cached.cacheSource === 'memory') {
+  const cached = await getCachedAirFetch(cacheKey);
+  if (cached && cached.cacheSource !== 'stale') {
     return cached;
   }
 
@@ -795,10 +885,19 @@ async function fetchAirData(stationName: string): Promise<AirFetchWithCacheResul
     };
   }
 
-  const stale = cached && cached.cacheSource === 'stale' ? cached.data : null;
+  const staleCache = cached && cached.cacheSource === 'stale'
+    ? cached
+    : await getCachedAirFetch(cacheKey, { allowStale: true });
+  const stale = staleCache?.cacheSource === 'stale' ? staleCache.data : null;
   const requestPromise = fetchAirDataWithStationFallback(stationName)
-    .then((data) => {
+    .then(async (data) => {
       setCachedAirFetch(cacheKey, data);
+      if (data.data) {
+        await setSharedCache(AIR_SHARED_CACHE_SCOPE, cacheKey, data, buildSharedCachePolicy(
+          AIR_BFF_CACHE_TTL_MS,
+          AIR_BFF_CACHE_STALE_MS,
+        ));
+      }
       return data;
     })
     .finally(() => {
@@ -1060,7 +1159,7 @@ async function fetchAiData(
   airContext: AiAirQualityContext | null,
 ): Promise<AiFetchResult> {
   const cacheKey = buildAiCacheKey(stationName, aiProfile, airContext);
-  const cached = getCachedAiGuide(cacheKey);
+  const cached = await getCachedAiGuide(cacheKey);
   if (cached) {
     return {
       data: cached.data,
@@ -1082,9 +1181,15 @@ async function fetchAiData(
   }
 
   const requestPromise = fetchAiDataFromApi(stationName, aiProfile, timeoutMs, airContext)
-    .then((result) => {
+    .then(async (result) => {
       if (!result.contentRecovered) {
         setCachedAiGuide(cacheKey, result.data);
+        await setSharedCache(
+          AI_SHARED_CACHE_SCOPE,
+          cacheKey,
+          result.data,
+          buildSharedCachePolicy(AI_BFF_CACHE_TTL_MS, AI_BFF_CACHE_STALE_MS),
+        );
       }
       return result;
     })
@@ -1147,7 +1252,7 @@ async function fetchAiDataWithRetry(
       lastError = error;
       const canRetry = attempt < maxAttempts - 1 && isAiRetryableError(error);
       if (!canRetry) {
-        const stale = getCachedAiGuide(cacheKey, { allowStale: true });
+        const stale = await getCachedAiGuide(cacheKey, { allowStale: true });
         if (stale?.source === 'stale') {
           console.warn(
             `[BFF] AI stale cache fallback: station=${stationName} `
@@ -1194,6 +1299,21 @@ async function fetchAiDataWithRetry(
 async function handlePost(request: Request) {
   const requestStartedAt = Date.now();
   const timing: Record<string, number> = {};
+  const rateLimit = applyRateLimit('/api/daily-report', request);
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too Many Requests' },
+      {
+        status: 429,
+        headers: {
+          ...corsHeaders(),
+          ...buildRateLimitHeaders(rateLimit),
+          'x-degraded': '1',
+        },
+      },
+    );
+  }
 
   try {
     const requestParseStartedAt = Date.now();
@@ -1313,9 +1433,9 @@ async function handlePost(request: Request) {
       timing.aiPrimaryMs = Date.now() - aiPrimaryStartedAt;
     }
 
-    let aiOk = Boolean(aiData) && !aiContentRecovered;
-    let aiRetryResolvedCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
-    let aiRetrySignatureCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
+    const aiOk = Boolean(aiData) && !aiContentRecovered;
+    const aiRetryResolvedCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
+    const aiRetrySignatureCache = { source: 'api', hit: false } as { source: AiCacheSource; hit: boolean };
 
     if (!aiData) {
       aiData = {
@@ -1368,6 +1488,7 @@ async function handlePost(request: Request) {
       `retrySignature=${formatAiCacheState(aiRetrySignatureCache)}`,
     ].join(' ');
     const airCacheLog = `primary=${formatAirCacheState(airPrimaryCache)}`;
+    const degraded = reliability.status !== 'LIVE' || !aiOk || aiContentRecovered;
     console.log(
       `[BFF][timing] route=/api/daily-report requested=${requestedStation} resolved=${reliability.resolvedStation} `
       + `reliability=${reliability.status} aiOk=${aiOk} ${timingLog} ${aiCacheLog} ${airCacheLog}`,
@@ -1382,10 +1503,12 @@ async function handlePost(request: Request) {
     }, {
       headers: {
         ...corsHeaders(),
+        ...buildRateLimitHeaders(rateLimit),
         'x-bff-timing': timingLog,
         'server-timing': serverTiming,
         'x-bff-ai-cache': aiCacheLog,
         'x-bff-air-cache': airCacheLog,
+        'x-degraded': degraded ? '1' : '0',
       },
     });
   } catch (error) {
@@ -1405,8 +1528,10 @@ async function handlePost(request: Request) {
         status: 500,
         headers: {
           ...corsHeaders(),
+          ...buildRateLimitHeaders(rateLimit),
           'x-bff-timing': timingLog,
           'server-timing': serverTiming,
+          'x-degraded': '1',
         },
       },
     );

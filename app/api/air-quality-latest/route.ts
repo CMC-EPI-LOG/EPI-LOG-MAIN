@@ -3,9 +3,19 @@ import { buildReliabilityMeta, type AirFetchResult } from '@/lib/dailyReportDeci
 import { corsHeaders } from '@/lib/cors';
 import { withApiObservability } from '@/lib/api-observability';
 import { loadAirQualityFromMongo } from '@/lib/airQualityMongo';
+import { applyRateLimit } from '@/lib/requestRateLimit';
+import { getSharedCache, setSharedCache } from '@/lib/sharedCache';
 import { buildStationCandidates, inferExpectedSido } from '@/lib/stationResolution';
 const FALLBACK_TEMP = 22;
 const FALLBACK_HUMIDITY = 45;
+const AIR_ROUTE_CACHE_SCOPE = 'route:air-quality-latest';
+const AIR_ROUTE_FRESH_MS = 3 * 60 * 1000;
+const AIR_ROUTE_STALE_MS = 15 * 60 * 1000;
+const AIR_ROUTE_HARD_TTL_MS = 24 * 60 * 60 * 1000;
+
+function buildServerTimingHeader(startedAt: number): string {
+  return `total;dur=${Date.now() - startedAt}`;
+}
 
 interface AirQualityRaw {
   sidoName?: string;
@@ -177,32 +187,126 @@ async function handleOptions() {
 }
 
 async function handleGet(request: Request) {
+  const startedAt = Date.now();
+  const rateLimit = applyRateLimit('/api/air-quality-latest', request);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too Many Requests' },
+      {
+        status: 429,
+        headers: {
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-degraded': '1',
+        },
+      },
+    );
+  }
+
   const url = new URL(request.url);
   const stationName = url.searchParams.get('stationName')?.trim();
   if (!stationName) {
     return NextResponse.json(
       { error: 'Missing stationName' },
-      { status: 400, headers: corsHeaders() },
+      {
+        status: 400,
+        headers: {
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-degraded': '1',
+        },
+      },
     );
   }
 
-  const airFetch = await fetchAirDataWithStationFallback(stationName);
-  const airQuality = toViewAirData(airFetch.data as AirQualityRaw | null, airFetch.resolvedStation);
-  const reliability = buildReliabilityMeta(stationName, airFetch, true);
-
-  return NextResponse.json(
-    {
-      airQuality,
-      reliability,
-      timestamp: new Date().toISOString(),
-    },
-    {
+  const cacheKey = stationName.toLowerCase();
+  const cached = await getSharedCache<{
+    airQuality: AirQualityView;
+    reliability: ReturnType<typeof buildReliabilityMeta>;
+    timestamp: string;
+  }>(AIR_ROUTE_CACHE_SCOPE, cacheKey);
+  if (cached?.state === 'shared') {
+    return NextResponse.json(cached.value, {
       headers: {
         'Cache-Control': 'no-store, max-age=0',
         ...corsHeaders(),
+        'x-rate-limit-remaining': String(rateLimit.remaining),
+        'x-rate-limit-reset': String(rateLimit.resetAt),
+        'server-timing': buildServerTimingHeader(startedAt),
+        'x-bff-air-cache': 'primary=shared:hit',
+        'x-degraded': cached.value.reliability.status === 'LIVE' ? '0' : '1',
       },
-    },
-  );
+    });
+  }
+
+  const stale = cached ?? await getSharedCache<{
+    airQuality: AirQualityView;
+    reliability: ReturnType<typeof buildReliabilityMeta>;
+    timestamp: string;
+  }>(AIR_ROUTE_CACHE_SCOPE, cacheKey, { allowStale: true });
+
+  try {
+    const airFetch = await fetchAirDataWithStationFallback(stationName);
+    const airQuality = toViewAirData(airFetch.data as AirQualityRaw | null, airFetch.resolvedStation);
+    const reliability = buildReliabilityMeta(stationName, airFetch, true);
+    const payload = {
+      airQuality,
+      reliability,
+      timestamp: new Date().toISOString(),
+    };
+
+    await setSharedCache(AIR_ROUTE_CACHE_SCOPE, cacheKey, payload, {
+      freshMs: AIR_ROUTE_FRESH_MS,
+      staleMs: AIR_ROUTE_STALE_MS,
+      hardTtlMs: AIR_ROUTE_HARD_TTL_MS,
+    });
+
+    return NextResponse.json(payload, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+        ...corsHeaders(),
+        'x-rate-limit-remaining': String(rateLimit.remaining),
+        'x-rate-limit-reset': String(rateLimit.resetAt),
+        'server-timing': buildServerTimingHeader(startedAt),
+        'x-bff-air-cache': 'primary=api:miss',
+        'x-degraded': reliability.status === 'LIVE' ? '0' : '1',
+      },
+    });
+  } catch (error) {
+    console.error('[api/air-quality-latest] failed:', error);
+    if (stale?.state === 'stale') {
+      return NextResponse.json(stale.value, {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-bff-air-cache': 'primary=stale:hit',
+          'x-degraded': '1',
+        },
+      });
+    }
+
+    return NextResponse.json(
+      { error: 'Failed to load air quality' },
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-bff-air-cache': 'primary=api:miss',
+          'x-degraded': '1',
+        },
+      },
+    );
+  }
 }
 
 export const OPTIONS = withApiObservability('/api/air-quality-latest', 'OPTIONS', handleOptions);

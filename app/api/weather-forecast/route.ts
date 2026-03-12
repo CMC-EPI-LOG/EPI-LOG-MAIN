@@ -14,6 +14,8 @@ import {
 } from '@/lib/lifestyleIndices';
 import { buildStationCandidates, inferExpectedSido } from '@/lib/stationResolution';
 import { withApiObservability } from '@/lib/api-observability';
+import { applyRateLimit } from '@/lib/requestRateLimit';
+import { getSharedCache, setSharedCache } from '@/lib/sharedCache';
 import { resolveForecastStationName } from '@/lib/weatherForecastResolution';
 
 export const dynamic = 'force-dynamic';
@@ -22,6 +24,14 @@ export const runtime = 'nodejs';
 const KST_OFFSET_HOURS = 9;
 const KST_OFFSET_MS = KST_OFFSET_HOURS * 60 * 60 * 1000;
 const FORECAST_WINDOW_HOURS = 48;
+const WEATHER_CACHE_SCOPE = 'route:weather-forecast';
+const WEATHER_CACHE_FRESH_MS = 5 * 60 * 1000;
+const WEATHER_CACHE_STALE_MS = 30 * 60 * 1000;
+const WEATHER_CACHE_HARD_TTL_MS = 24 * 60 * 60 * 1000;
+
+function buildServerTimingHeader(startedAt: number): string {
+  return `total;dur=${Date.now() - startedAt}`;
+}
 
 interface WeatherForecastRawDoc {
   sidoName?: string;
@@ -67,6 +77,25 @@ interface WeatherForecastResponse {
   airQualityForecast: AirQualityForecastView | null;
   lifestyleIndices: LifestyleIndicesView | null;
   timestamp: string;
+}
+
+function buildEmptyWeatherForecastResponse(
+  stationName: string,
+  options?: {
+    resolvedStation?: string | null;
+    triedStations?: string[];
+  },
+): WeatherForecastResponse {
+  return {
+    requestedStation: stationName,
+    resolvedStation: options?.resolvedStation ?? null,
+    triedStations: options?.triedStations ?? buildStationCandidates(stationName),
+    windowHours: FORECAST_WINDOW_HOURS,
+    items: [],
+    airQualityForecast: null,
+    lifestyleIndices: null,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 function toLifestyleRegionQuery(region: string | null) {
@@ -513,15 +542,62 @@ async function handleOptions() {
 }
 
 async function handleGet(request: Request) {
+  const startedAt = Date.now();
+  const rateLimit = applyRateLimit('/api/weather-forecast', request);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too Many Requests' },
+      {
+        status: 429,
+        headers: {
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-degraded': '1',
+        },
+      },
+    );
+  }
+
   const url = new URL(request.url);
   const stationName = url.searchParams.get('stationName')?.trim();
 
   if (!stationName) {
     return NextResponse.json(
       { error: 'Missing stationName' },
-      { status: 400, headers: corsHeaders() },
+      {
+        status: 400,
+        headers: {
+          ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-degraded': '1',
+        },
+      },
     );
   }
+
+  const cacheKey = stationName.toLowerCase();
+  const cached = await getSharedCache<WeatherForecastResponse>(WEATHER_CACHE_SCOPE, cacheKey);
+  if (cached?.state === 'shared') {
+    return NextResponse.json(cached.value, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+        ...corsHeaders(),
+        'x-rate-limit-remaining': String(rateLimit.remaining),
+        'x-rate-limit-reset': String(rateLimit.resetAt),
+        'server-timing': buildServerTimingHeader(startedAt),
+        'x-bff-weather-cache': 'primary=shared:hit',
+        'x-degraded': cached.value.items.length > 0 ? '0' : '1',
+      },
+    });
+  }
+
+  const stale = cached ?? await getSharedCache<WeatherForecastResponse>(WEATHER_CACHE_SCOPE, cacheKey, {
+    allowStale: true,
+  });
 
   try {
     const loaded = await loadStationForecastDocs(stationName);
@@ -561,21 +637,50 @@ async function handleGet(request: Request) {
       timestamp: new Date().toISOString(),
     };
 
-    return NextResponse.json(
-      response,
-      {
+    await setSharedCache(WEATHER_CACHE_SCOPE, cacheKey, response, {
+      freshMs: WEATHER_CACHE_FRESH_MS,
+      staleMs: WEATHER_CACHE_STALE_MS,
+      hardTtlMs: WEATHER_CACHE_HARD_TTL_MS,
+    });
+
+    return NextResponse.json(response, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+        ...corsHeaders(),
+        'x-rate-limit-remaining': String(rateLimit.remaining),
+        'x-rate-limit-reset': String(rateLimit.resetAt),
+        'server-timing': buildServerTimingHeader(startedAt),
+        'x-bff-weather-cache': 'primary=api:miss',
+        'x-degraded': response.items.length > 0 ? '0' : '1',
+      },
+    });
+  } catch (error) {
+    console.error('[api/weather-forecast] failed:', error);
+    if (stale?.state === 'stale') {
+      return NextResponse.json(stale.value, {
         headers: {
           'Cache-Control': 'no-store, max-age=0',
           ...corsHeaders(),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
+          'x-bff-weather-cache': 'primary=stale:hit',
+          'x-degraded': '1',
         },
+      });
+    }
+
+    return NextResponse.json(buildEmptyWeatherForecastResponse(stationName), {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+        ...corsHeaders(),
+        'x-rate-limit-remaining': String(rateLimit.remaining),
+        'x-rate-limit-reset': String(rateLimit.resetAt),
+        'server-timing': buildServerTimingHeader(startedAt),
+        'x-bff-weather-cache': 'primary=fallback:empty',
+        'x-degraded': '1',
       },
-    );
-  } catch (error) {
-    console.error('[api/weather-forecast] failed:', error);
-    return NextResponse.json(
-      { error: 'Failed to load weather forecast' },
-      { status: 500, headers: corsHeaders() },
-    );
+    });
   }
 }
 

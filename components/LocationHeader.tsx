@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { type KeyboardEvent } from 'react';
 import { MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
@@ -11,6 +11,9 @@ const DaumPostcode = dynamic(() => import('react-daum-postcode'), { ssr: false }
 
 interface LocationHeaderProps {
   currentLocation: string; // e.g. "역삼동" or "강남구"
+  isSearchOpen: boolean;
+  onOpenSearch: () => void;
+  onCloseSearch: () => void;
   onLocationSelect: (address: string, stationName: string) => void;
 }
 
@@ -21,15 +24,26 @@ interface DaumPostcodeData {
   sido?: string;
 }
 
-export default function LocationHeader({ currentLocation, onLocationSelect }: LocationHeaderProps) {
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
+export default function LocationHeader({
+  currentLocation,
+  isSearchOpen,
+  onOpenSearch,
+  onCloseSearch,
+  onLocationSelect,
+}: LocationHeaderProps) {
   const portalRoot = typeof document !== 'undefined' ? document.body : null;
+
+  const handleTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    onOpenSearch();
+  };
 
   const handleComplete = (data: DaumPostcodeData) => {
     const { displayAddress, stationQuery } = normalizeLocationSelection(data);
 
     onLocationSelect(displayAddress, stationQuery || displayAddress);
-    setIsSearchOpen(false);
+    onCloseSearch();
   };
 
   return (
@@ -38,7 +52,8 @@ export default function LocationHeader({ currentLocation, onLocationSelect }: Lo
         <button
           type="button"
           className="flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/70"
-          onClick={() => setIsSearchOpen(true)}
+          onClick={onOpenSearch}
+          onKeyDown={handleTriggerKeyDown}
           aria-label="위치 검색 열기"
           aria-haspopup="dialog"
           data-testid="location-trigger"
@@ -69,7 +84,7 @@ export default function LocationHeader({ currentLocation, onLocationSelect }: Lo
                    <div className="p-4 flex justify-between items-center bg-pastel-blue border-b-2 border-black">
                      <h3 className="font-black text-lg">📍 우리 동네 찾기</h3>
                      <button 
-                       onClick={() => setIsSearchOpen(false)}
+                       onClick={onCloseSearch}
                        className="font-bold text-2xl leading-none hover:text-red-500"
                        aria-label="위치 검색 닫기"
                        data-testid="location-close"

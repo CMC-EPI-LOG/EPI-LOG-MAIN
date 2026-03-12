@@ -236,8 +236,32 @@ node scripts/nationwide-reliability-smoke.mjs \
 - `next-pwa`는 개발환경에서 비활성화, 프로덕션에서 Service Worker 생성
 - Sentry는 DSN이 있을 때만 런타임에서 활성화되고, `SENTRY_ORG`/`SENTRY_PROJECT`가 있을 때만 Next.js 빌드 플러그인이 활성화됨
 - `/api/*` 라우트는 CORS 헤더를 반환
+- `/api/healthz`는 `ok`, `version`, `env`, `aiApiReachable`, `mongoConfigured`, `sentryEnabled`만 반환하는 경량 운영 점검 엔드포인트
 - `/api/log`는 MongoDB 미설정 시 `202(skipped)`로 응답하고 저장은 생략
 - `/api/weather-forecast`는 MongoDB(`weather_forecast`) 데이터 소스가 필요
+- `/api/daily-report`, `/api/air-quality-latest`, `/api/weather-forecast`, `/api/clothing-recommendation`는 인메모리 + Mongo TTL shared cache를 함께 사용하고 `x-request-id`, `server-timing`, `x-degraded`, route별 cache header를 반환
+- 미니앱은 4초 timeout + 1회 retry 정책을 사용하고, 실패 시 프로필이 일치하는 마지막 성공 snapshot으로만 복구함
+
+### 9.1 무료 운영 기본 env
+
+웹/BFF:
+
+- `BFF_SHARED_CACHE_ENABLED=1`
+- `BFF_SHARED_CACHE_HARD_TTL_MS=86400000`
+- `API_RATE_LIMIT_WINDOW_MS=60000`
+- `API_RATE_LIMIT_MAX_PER_IP=60`
+
+미니앱:
+
+- `VITE_SENTRY_DSN` 또는 `NEXT_PUBLIC_SENTRY_DSN`
+- `VITE_SENTRY_ENVIRONMENT`
+- `VITE_SENTRY_RELEASE`
+
+### 9.2 GitHub Actions
+
+- `/.github/workflows/ci.yml`: `lint + build + vitest + playwright`
+- `/.github/workflows/public-data-ingest.yml`: AirKorea/KMA 적재를 GitHub schedule로 실행
+- `/.github/workflows/prod-healthz.yml`: 웹/AI 프로덕션 healthz를 30분마다 점검
 
 ## 10. Sentry 계정 교체 가이드
 

@@ -44,7 +44,13 @@ describe('/api/clothing-recommendation route', () => {
     const fetchCall = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(fetchCall[0]).toContain('/api/clothing-recommendation');
     expect(fetchCall[1].method).toBe('POST');
-    expect(fetchCall[1].body).toBe(JSON.stringify({ temperature: 29, humidity: 78 }));
+    expect(fetchCall[1].body).toBe(JSON.stringify({
+      temperature: 29,
+      humidity: 78,
+      userProfile: null,
+      airQuality: null,
+      airGrade: null,
+    }));
 
     expect(payload.summary).toContain('더운 날씨');
     expect(payload.recommendation).toContain('반팔');

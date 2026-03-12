@@ -3,9 +3,7 @@
  * Maps user profile and air quality data to character assets
  */
 
-type AirQualityGrade = 'GOOD' | 'NORMAL' | 'BAD' | 'VERY_BAD';
 type GradeCode = 'A' | 'B' | 'C' | 'D';
-type AgeGroup = 'infant' | 'toddler' | 'elementary_low' | 'elementary_high' | 'teen_adult';
 type AgeCode = '1' | '2' | '3' | '4' | '5';
 
 /**

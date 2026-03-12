@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     "infra/public-data-cdk/**",
     "workers/public-data/**",
     "next-env.d.ts",
+    "public/sw.js",
+    "public/workbox-*.js",
   ]),
 ]);
 
