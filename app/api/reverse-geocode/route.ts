@@ -13,6 +13,13 @@ interface KakaoRegionDocument {
   region_type?: string;
 }
 
+interface ReverseGeocodeSuccessPayload {
+  address: string | null;
+  regionName: string;
+  stationCandidate: string;
+  fallbackApplied?: boolean;
+}
+
 function toCoordinate(value: unknown): number | null {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : null;
@@ -42,6 +49,21 @@ function normalizeRegion(doc: KakaoRegionDocument) {
     address: doc.address_name,
     regionName,
     stationCandidate,
+  };
+}
+
+function normalizeFallbackStationName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  return normalized || null;
+}
+
+function buildFallbackRegionResponse(fallbackStationName: string): ReverseGeocodeSuccessPayload {
+  return {
+    address: null,
+    regionName: fallbackStationName,
+    stationCandidate: fallbackStationName,
+    fallbackApplied: true,
   };
 }
 
@@ -90,10 +112,17 @@ async function handleOptions() {
 }
 
 async function handlePost(request: Request) {
+  let fallbackStationName: string | null = null;
+
   try {
-    const rawBody = (await request.json()) as { lat?: unknown; lng?: unknown };
+    const rawBody = (await request.json()) as {
+      lat?: unknown;
+      lng?: unknown;
+      fallbackStationName?: unknown;
+    };
     const lat = toCoordinate(rawBody?.lat);
     const lng = toCoordinate(rawBody?.lng);
+    fallbackStationName = normalizeFallbackStationName(rawBody?.fallbackStationName);
 
     if (lat === null || lng === null) {
       return NextResponse.json(
@@ -118,6 +147,11 @@ async function handlePost(request: Request) {
 
     const region = await fetchKakaoRegion(lat, lng);
     if (!region) {
+      if (fallbackStationName) {
+        return NextResponse.json(buildFallbackRegionResponse(fallbackStationName), {
+          headers: corsHeaders(),
+        });
+      }
       return NextResponse.json(
         { error: 'UNSUPPORTED_COORDINATES' },
         { status: 422, headers: corsHeaders() },
@@ -126,6 +160,11 @@ async function handlePost(request: Request) {
 
     const normalized = normalizeRegion(region);
     if (!normalized) {
+      if (fallbackStationName) {
+        return NextResponse.json(buildFallbackRegionResponse(fallbackStationName), {
+          headers: corsHeaders(),
+        });
+      }
       return NextResponse.json(
         { error: 'NO_RESULTS' },
         { status: 422, headers: corsHeaders() },
@@ -145,6 +184,11 @@ async function handlePost(request: Request) {
 
     const reason = error instanceof Error ? error.message : 'unknown';
     if (reason.startsWith('KAKAO_HTTP_4')) {
+      if (fallbackStationName) {
+        return NextResponse.json(buildFallbackRegionResponse(fallbackStationName), {
+          headers: corsHeaders(),
+        });
+      }
       return NextResponse.json(
         { error: 'UNSUPPORTED_COORDINATES' },
         { status: 422, headers: corsHeaders() },
