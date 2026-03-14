@@ -150,6 +150,7 @@ interface WeatherForecastData {
 interface ReverseGeocodeResponse {
   regionName?: string;
   stationCandidate?: string;
+  fallbackApplied?: boolean;
   error?: string;
 }
 
@@ -331,13 +332,17 @@ export default function Home() {
     [displayRegion],
   );
 
-  const fetchReverseGeocodeByCoords = useCallback(async (lat: number, lng: number) => {
+  const fetchReverseGeocodeByCoords = useCallback(async (
+    lat: number,
+    lng: number,
+    fallbackStationName: string,
+  ) => {
     const payload = await fetchJsonWithTimeout<ReverseGeocodeResponse>(
       apiUrl("/api/reverse-geocode"),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lng }),
+        body: JSON.stringify({ lat, lng, fallbackStationName }),
       },
       {
         timeoutMs: REVERSE_GEOCODE_TIMEOUT_MS,
@@ -351,7 +356,11 @@ export default function Home() {
       throw new Error("reverse_geocode_invalid_payload");
     }
 
-    return { regionName, stationCandidate };
+    return {
+      regionName,
+      stationCandidate,
+      fallbackApplied: payload.fallbackApplied === true,
+    };
   }, []);
 
   const fetchClothingRecommendation = useCallback(async (
@@ -662,10 +671,13 @@ export default function Home() {
   }, [location.stationName, refreshAirLatest]);
 
   const updateLocationByCoords = useCallback(async (lat: number, lng: number) => {
+    const fallbackLocation = buildLocationFallback({ lat, lng });
+
     try {
-      const { regionName, stationCandidate } = await fetchReverseGeocodeByCoords(
+      const { regionName, stationCandidate, fallbackApplied } = await fetchReverseGeocodeByCoords(
         lat,
         lng,
+        fallbackLocation.stationName,
       );
 
       const newLocation = {
@@ -677,7 +689,11 @@ export default function Home() {
       setLocation(newLocation);
       setDisplayRegion(regionName);
 
-      toast.success(`현재 위치: ${regionName}`);
+      if (fallbackApplied) {
+        toast(`현재 위치를 정확히 확인하지 못해 '${regionName}' 기준으로 보여드려요 🏢`);
+      } else {
+        toast.success(`현재 위치: ${regionName}`);
+      }
       fetchData(newLocation, profile, "location");
     } catch (error) {
       console.error("Reverse Geocode Error:", error);
@@ -690,15 +706,9 @@ export default function Home() {
         lat: Number(lat.toFixed(6)),
         lng: Number(lng.toFixed(6)),
       });
-      const fallbackLocation = buildLocationFallback({ lat, lng });
       const fallbackRegionLabel = getFallbackRegionLabel(fallbackLocation);
-      const isOutOfCoverage =
-        reason.includes("UNSUPPORTED_COORDINATES") ||
-        reason.includes("NO_RESULTS");
       toast.error(
-        isOutOfCoverage
-          ? `현재 위치는 지원 지역 밖이라 '${fallbackRegionLabel}' 기준으로 보여드려요 🏢`
-          : `위치 정보를 불러올 수 없어 '${fallbackRegionLabel}' 기준으로 보여드려요 🏢`,
+        `위치 정보를 불러올 수 없어 '${fallbackRegionLabel}' 기준으로 보여드려요 🏢`,
       );
       setLocation(fallbackLocation);
       setDisplayRegion(fallbackRegionLabel);
