@@ -27,12 +27,6 @@ export const HOME_FEATURES = [
   },
 ] as const;
 
-export const HOME_USE_CASES = [
-  "등원 전 오늘 외출이 괜찮은지 빠르게 확인하고 싶은 보호자",
-  "미세먼지와 오존이 높은 날 아이 준비물을 정리해야 하는 보호자",
-  "위치와 프로필에 따라 달라지는 개인화된 활동 가이드를 찾는 사용자",
-] as const;
-
 export const HOME_FAQS = [
   {
     question: "아이숨은 어떤 정보를 바탕으로 결과를 보여주나요?",
