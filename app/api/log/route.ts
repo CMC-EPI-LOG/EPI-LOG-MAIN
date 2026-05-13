@@ -4,14 +4,17 @@ import { z } from 'zod';
 import { dbConnect } from '@/lib/mongoose';
 import { EventLog } from '@/models/EventLog';
 import { SessionSummary } from '@/models/SessionSummary';
-import { corsHeaders } from '@/lib/cors';
+import { corsHeaders, handleCorsOptions } from '@/lib/cors';
 import { withApiObservability, logStructuredInfo, logStructuredWarn } from '@/lib/api-observability';
 import { recordLogIngestionMetrics } from '@/lib/log-ingestion-metrics';
+import { applyRateLimit } from '@/lib/requestRateLimit';
+import { sanitizeErrorMessage } from '@/lib/securityRedaction';
 
 export const runtime = 'nodejs';
 
 const LOG_SCHEMA_VERSION = '2.0.0';
 const MAX_BATCH_SIZE = 100;
+const LOG_REQUEST_MAX_BYTES = 64 * 1024;
 
 let hasWarnedMissingMongoUri = false;
 
@@ -30,13 +33,13 @@ const LogEventSchema = z.object({
   source: z.string().min(1).max(128).optional().nullable(),
   shared_by: z.string().min(1).max(128).optional().nullable(),
   metadata: MetadataSchema.default({}),
-});
+}).strict();
 
 const LogBatchSchema = z.object({
   schema_version: z.string().min(1).max(32).optional(),
   sent_at: z.string().datetime({ offset: true }).optional(),
   events: z.array(LogEventSchema).min(1).max(MAX_BATCH_SIZE),
-});
+}).strict();
 
 const LegacyLogBodySchema = z.object({
   session_id: z.string().min(1).max(128),
@@ -44,7 +47,7 @@ const LegacyLogBodySchema = z.object({
   shared_by: z.string().min(1).max(128).optional(),
   event_name: z.string().min(1).max(120),
   metadata: MetadataSchema.optional(),
-});
+}).strict();
 
 type LogEventPayload = z.infer<typeof LogEventSchema>;
 
@@ -59,14 +62,15 @@ const warnMissingMongoUriOnce = () => {
   console.warn('[api/log] skip persistence: MONGODB_URI is not configured');
 };
 
-function responseHeaders(requestId: string) {
+function responseHeaders(requestId: string, request?: Request) {
   return {
-    ...corsHeaders(),
+    ...corsHeaders(request),
     'x-request-id': requestId,
   };
 }
 
 function errorResponse(
+  request: Request,
   requestId: string,
   code: string,
   message: string,
@@ -85,7 +89,7 @@ function errorResponse(
     },
     {
       status,
-      headers: responseHeaders(requestId),
+      headers: responseHeaders(requestId, request),
     },
   );
 }
@@ -248,16 +252,42 @@ function buildSessionAggregates(events: EventDocument[]) {
   return Array.from(grouped.values());
 }
 
-async function handleOptions() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+async function handleOptions(request: Request) {
+  return handleCorsOptions(request);
 }
 
 async function handlePost(request: Request) {
   const requestId = request.headers.get('x-request-id') || randomUUID();
+  const rateLimit = applyRateLimit('/api/log', request, { max: 30 });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { ok: false, request_id: requestId, error: { code: 'TOO_MANY_REQUESTS' } },
+      {
+        status: 429,
+        headers: {
+          ...responseHeaders(requestId, request),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+        },
+      },
+    );
+  }
 
   let body: unknown = {};
   try {
-    body = await request.json();
+    const rawBody = await request.text();
+    const bodySize = new TextEncoder().encode(rawBody).length;
+    if (bodySize > LOG_REQUEST_MAX_BYTES) {
+      return errorResponse(
+        request,
+        requestId,
+        'PAYLOAD_TOO_LARGE',
+        `Request body must be ${LOG_REQUEST_MAX_BYTES} bytes or less.`,
+        413,
+      );
+    }
+
+    body = rawBody.trim() ? (JSON.parse(rawBody) as unknown) : {};
   } catch {
     recordLogIngestionMetrics({
       statusCode: 400,
@@ -269,6 +299,7 @@ async function handlePost(request: Request) {
       shareFailures: 0,
     });
     return errorResponse(
+      request,
       requestId,
       'INVALID_JSON',
       'Request body must be a valid JSON payload.',
@@ -288,6 +319,7 @@ async function handlePost(request: Request) {
       shareFailures: 0,
     });
     return errorResponse(
+      request,
       requestId,
       'INVALID_PAYLOAD',
       `Payload must match either legacy schema or V2 batch schema (max ${MAX_BATCH_SIZE} events).`,
@@ -329,7 +361,7 @@ async function handlePost(request: Request) {
       },
       {
         status: 202,
-        headers: responseHeaders(requestId),
+        headers: responseHeaders(requestId, request),
       },
     );
   }
@@ -449,7 +481,7 @@ async function handlePost(request: Request) {
         accepted_event_ids: events.map((event) => event.event_id),
       },
       {
-        headers: responseHeaders(requestId),
+        headers: responseHeaders(requestId, request),
       },
     );
   } catch (error) {
@@ -466,10 +498,11 @@ async function handlePost(request: Request) {
       dropped_count: events.length,
       rates: snapshot.rates,
       alerts: snapshot.alerts,
-      error: error instanceof Error ? error.message : String(error),
+      error: sanitizeErrorMessage(error),
     });
 
     return errorResponse(
+      request,
       requestId,
       'INGESTION_FAILED',
       'Failed to persist log events.',

@@ -1,7 +1,7 @@
 import type { AnyBulkWriteOperation } from 'mongodb';
 import { KMA_LIFESTYLE_REGIONS } from '../config/kma-lifestyle-regions';
 import { getKmaLifestyleCollections } from '../shared/collections';
-import { normalizeServiceKey, optionalEnv, parseIntegerEnv, requireEnv } from '../shared/env';
+import { normalizeServiceKey, optionalEnv, optionalUrlEnv, parseIntegerEnv, requireEnv } from '../shared/env';
 import { fetchJson } from '../shared/http';
 import { emitMetrics } from '../shared/metrics';
 import { bulkUpsert, getCollection } from '../shared/mongo';
@@ -28,8 +28,8 @@ type FetchResult = {
   permissionDenied: boolean;
 };
 
-const DEFAULT_RAW_TTL_DAYS = 14;
-const DEFAULT_RUNS_TTL_DAYS = 30;
+const DEFAULT_RAW_TTL_DAYS = 1;
+const DEFAULT_RUNS_TTL_DAYS = 7;
 const DEFAULT_TIME_CANDIDATES = 3;
 const DEFAULT_SAFETY_LAG_MINUTES = 20;
 
@@ -133,7 +133,7 @@ export async function handler(event: ScheduledIngestEvent) {
   const pollenServiceKey = normalizeServiceKey(
     optionalEnv('KMA_POLLEN_SERVICE_KEY', sharedServiceKey),
   );
-  const uvBaseUrl = optionalEnv(
+  const uvBaseUrl = optionalUrlEnv(
     'KMA_UV_BASE_URL',
     'https://apis.data.go.kr/1360000/LivingWthrIdxServiceV4/getUVIdxV4',
   );
@@ -257,7 +257,7 @@ export async function handler(event: ScheduledIngestEvent) {
         if (pollenPermissionDenied.has(endpoint.pollenType)) continue;
 
         const pollenResult = await fetchFirstAvailableItem({
-          baseUrl: optionalEnv(endpoint.envName, endpoint.fallback),
+          baseUrl: optionalUrlEnv(endpoint.envName, endpoint.fallback),
           keyParamName: 'serviceKey',
           serviceKey: pollenServiceKey,
           areaNo: region.areaNo,

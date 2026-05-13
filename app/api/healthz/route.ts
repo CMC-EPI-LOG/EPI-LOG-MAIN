@@ -1,16 +1,18 @@
 import { NextResponse } from 'next/server';
-import { corsHeaders } from '@/lib/cors';
+import { corsHeaders, handleCorsOptions } from '@/lib/cors';
 import { dbConnect } from '@/lib/mongoose';
 import { withApiObservability } from '@/lib/api-observability';
+import { applyRateLimit } from '@/lib/requestRateLimit';
+import { getAiApiUrl } from '@/lib/serverEnv';
 
 export const runtime = 'nodejs';
 
-const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
+const AI_API_URL = getAiApiUrl();
 const APP_VERSION = process.env.APP_VERSION || process.env.VERCEL_GIT_COMMIT_SHA || 'dev';
 const APP_ENV = process.env.VERCEL_ENV || process.env.NODE_ENV || 'development';
 
-async function handleOptions() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+async function handleOptions(request: Request) {
+  return handleCorsOptions(request);
 }
 
 async function checkAiApiReachable() {
@@ -29,7 +31,22 @@ async function checkAiApiReachable() {
   }
 }
 
-async function handleGet() {
+async function handleGet(request: Request) {
+  const rateLimit = applyRateLimit('/api/healthz', request, { max: 30 });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too Many Requests' },
+      {
+        status: 429,
+        headers: {
+          ...corsHeaders(request),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+        },
+      },
+    );
+  }
+
   let mongoConfigured = false;
 
   if (typeof process.env.MONGODB_URI === 'string' && process.env.MONGODB_URI.trim()) {
@@ -52,8 +69,10 @@ async function handleGet() {
 
   return NextResponse.json(payload, {
     headers: {
-      ...corsHeaders(),
+      ...corsHeaders(request),
       'Cache-Control': 'no-store, max-age=0',
+      'x-rate-limit-remaining': String(rateLimit.remaining),
+      'x-rate-limit-reset': String(rateLimit.resetAt),
     },
   });
 }

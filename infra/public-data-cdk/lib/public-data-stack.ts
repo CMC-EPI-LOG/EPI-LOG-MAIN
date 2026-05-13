@@ -38,6 +38,12 @@ function optionalIntegerEnv(name: string) {
   return Math.trunc(parsed);
 }
 
+function booleanEnv(name: string, fallback = false) {
+  const value = envValue(name).trim().toLowerCase();
+  if (!value) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(value);
+}
+
 function resolveConfigValue(scope: Construct, logicalId: string, name: string, fallback = '') {
   const directValue = process.env[name];
   if (directValue) {
@@ -98,18 +104,21 @@ export class PublicDataStack extends cdk.Stack {
         }
       : {};
     const reservedConcurrency = optionalIntegerEnv('PUBLIC_DATA_RESERVED_CONCURRENCY');
+    const enableCloudWatchAlarms = booleanEnv('PUBLIC_DATA_ENABLE_CLOUDWATCH_ALARMS', false);
 
     let alarmTopic: sns.ITopic | null = null;
-    const alarmTopicArn = envValue('ALARM_SNS_TOPIC_ARN');
-    const alarmEmail = envValue('ALARM_EMAIL_ADDRESS');
-    if (alarmTopicArn) {
-      alarmTopic = sns.Topic.fromTopicArn(this, 'PublicDataAlarmTopicImport', alarmTopicArn);
-    } else if (alarmEmail) {
-      const topic = new sns.Topic(this, 'PublicDataAlarmTopic', {
-        topicName: 'public-data-alarms',
-      });
-      topic.addSubscription(new snsSubscriptions.EmailSubscription(alarmEmail));
-      alarmTopic = topic;
+    if (enableCloudWatchAlarms) {
+      const alarmTopicArn = envValue('ALARM_SNS_TOPIC_ARN');
+      const alarmEmail = envValue('ALARM_EMAIL_ADDRESS');
+      if (alarmTopicArn) {
+        alarmTopic = sns.Topic.fromTopicArn(this, 'PublicDataAlarmTopicImport', alarmTopicArn);
+      } else if (alarmEmail) {
+        const topic = new sns.Topic(this, 'PublicDataAlarmTopic', {
+          topicName: 'public-data-alarms',
+        });
+        topic.addSubscription(new snsSubscriptions.EmailSubscription(alarmEmail));
+        alarmTopic = topic;
+      }
     }
 
     const scheduleGroup = new scheduler.CfnScheduleGroup(this, 'PublicDataScheduleGroup', {
@@ -564,88 +573,90 @@ export class PublicDataStack extends cdk.Stack {
     airKoreaForecastSchedule.node.addDependency(scheduleGroup);
     kmaLifestyleSchedule.node.addDependency(scheduleGroup);
 
-    const airKoreaLambdaErrorsAlarm = new cloudwatch.Alarm(this, 'AirKoreaLambdaErrorsAlarm', {
-      metric: airKoreaFn.metricErrors(),
-      threshold: 1,
-      evaluationPeriods: 1,
-      datapointsToAlarm: 1,
-    });
-
-    const airKoreaForecastLambdaErrorsAlarm = new cloudwatch.Alarm(
-      this,
-      'AirKoreaForecastLambdaErrorsAlarm',
-      {
-        metric: airKoreaForecastFn.metricErrors(),
+    if (enableCloudWatchAlarms) {
+      const airKoreaLambdaErrorsAlarm = new cloudwatch.Alarm(this, 'AirKoreaLambdaErrorsAlarm', {
+        metric: airKoreaFn.metricErrors(),
         threshold: 1,
         evaluationPeriods: 1,
         datapointsToAlarm: 1,
-      },
-    );
+      });
 
-    const kmaLambdaErrorsAlarm = new cloudwatch.Alarm(this, 'KmaLambdaErrorsAlarm', {
-      metric: kmaShortForecastFn.metricErrors(),
-      threshold: 1,
-      evaluationPeriods: 1,
-      datapointsToAlarm: 1,
-    });
+      const airKoreaForecastLambdaErrorsAlarm = new cloudwatch.Alarm(
+        this,
+        'AirKoreaForecastLambdaErrorsAlarm',
+        {
+          metric: airKoreaForecastFn.metricErrors(),
+          threshold: 1,
+          evaluationPeriods: 1,
+          datapointsToAlarm: 1,
+        },
+      );
 
-    const kmaLifestyleLambdaErrorsAlarm = new cloudwatch.Alarm(
-      this,
-      'KmaLifestyleLambdaErrorsAlarm',
-      {
-        metric: kmaLifestyleFn.metricErrors(),
+      const kmaLambdaErrorsAlarm = new cloudwatch.Alarm(this, 'KmaLambdaErrorsAlarm', {
+        metric: kmaShortForecastFn.metricErrors(),
         threshold: 1,
         evaluationPeriods: 1,
         datapointsToAlarm: 1,
-      },
-    );
+      });
 
-    const airKoreaDlqMessagesAlarm = new cloudwatch.Alarm(this, 'AirKoreaDlqMessagesAlarm', {
-      metric: airKoreaDlq.metricApproximateNumberOfMessagesVisible(),
-      threshold: 1,
-      evaluationPeriods: 1,
-      datapointsToAlarm: 1,
-    });
+      const kmaLifestyleLambdaErrorsAlarm = new cloudwatch.Alarm(
+        this,
+        'KmaLifestyleLambdaErrorsAlarm',
+        {
+          metric: kmaLifestyleFn.metricErrors(),
+          threshold: 1,
+          evaluationPeriods: 1,
+          datapointsToAlarm: 1,
+        },
+      );
 
-    const airKoreaForecastDlqMessagesAlarm = new cloudwatch.Alarm(
-      this,
-      'AirKoreaForecastDlqMessagesAlarm',
-      {
-        metric: airKoreaForecastDlq.metricApproximateNumberOfMessagesVisible(),
+      const airKoreaDlqMessagesAlarm = new cloudwatch.Alarm(this, 'AirKoreaDlqMessagesAlarm', {
+        metric: airKoreaDlq.metricApproximateNumberOfMessagesVisible(),
         threshold: 1,
         evaluationPeriods: 1,
         datapointsToAlarm: 1,
-      },
-    );
+      });
 
-    const kmaDlqMessagesAlarm = new cloudwatch.Alarm(this, 'KmaDlqMessagesAlarm', {
-      metric: kmaDlq.metricApproximateNumberOfMessagesVisible(),
-      threshold: 1,
-      evaluationPeriods: 1,
-      datapointsToAlarm: 1,
-    });
+      const airKoreaForecastDlqMessagesAlarm = new cloudwatch.Alarm(
+        this,
+        'AirKoreaForecastDlqMessagesAlarm',
+        {
+          metric: airKoreaForecastDlq.metricApproximateNumberOfMessagesVisible(),
+          threshold: 1,
+          evaluationPeriods: 1,
+          datapointsToAlarm: 1,
+        },
+      );
 
-    const kmaLifestyleDlqMessagesAlarm = new cloudwatch.Alarm(
-      this,
-      'KmaLifestyleDlqMessagesAlarm',
-      {
-        metric: kmaLifestyleDlq.metricApproximateNumberOfMessagesVisible(),
+      const kmaDlqMessagesAlarm = new cloudwatch.Alarm(this, 'KmaDlqMessagesAlarm', {
+        metric: kmaDlq.metricApproximateNumberOfMessagesVisible(),
         threshold: 1,
         evaluationPeriods: 1,
         datapointsToAlarm: 1,
-      },
-    );
+      });
 
-    if (alarmTopic) {
-      const alarmAction = new cloudwatchActions.SnsAction(alarmTopic);
-      airKoreaLambdaErrorsAlarm.addAlarmAction(alarmAction);
-      airKoreaForecastLambdaErrorsAlarm.addAlarmAction(alarmAction);
-      kmaLambdaErrorsAlarm.addAlarmAction(alarmAction);
-      kmaLifestyleLambdaErrorsAlarm.addAlarmAction(alarmAction);
-      airKoreaDlqMessagesAlarm.addAlarmAction(alarmAction);
-      airKoreaForecastDlqMessagesAlarm.addAlarmAction(alarmAction);
-      kmaDlqMessagesAlarm.addAlarmAction(alarmAction);
-      kmaLifestyleDlqMessagesAlarm.addAlarmAction(alarmAction);
+      const kmaLifestyleDlqMessagesAlarm = new cloudwatch.Alarm(
+        this,
+        'KmaLifestyleDlqMessagesAlarm',
+        {
+          metric: kmaLifestyleDlq.metricApproximateNumberOfMessagesVisible(),
+          threshold: 1,
+          evaluationPeriods: 1,
+          datapointsToAlarm: 1,
+        },
+      );
+
+      if (alarmTopic) {
+        const alarmAction = new cloudwatchActions.SnsAction(alarmTopic);
+        airKoreaLambdaErrorsAlarm.addAlarmAction(alarmAction);
+        airKoreaForecastLambdaErrorsAlarm.addAlarmAction(alarmAction);
+        kmaLambdaErrorsAlarm.addAlarmAction(alarmAction);
+        kmaLifestyleLambdaErrorsAlarm.addAlarmAction(alarmAction);
+        airKoreaDlqMessagesAlarm.addAlarmAction(alarmAction);
+        airKoreaForecastDlqMessagesAlarm.addAlarmAction(alarmAction);
+        kmaDlqMessagesAlarm.addAlarmAction(alarmAction);
+        kmaLifestyleDlqMessagesAlarm.addAlarmAction(alarmAction);
+      }
     }
 
     new cdk.CfnOutput(this, 'AirKoreaFunctionName', {

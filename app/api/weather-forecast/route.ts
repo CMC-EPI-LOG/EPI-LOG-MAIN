@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { Filter } from 'mongodb';
 import { dbConnect } from '@/lib/mongoose';
-import { corsHeaders } from '@/lib/cors';
+import { corsHeaders, handleCorsOptions } from '@/lib/cors';
 import {
   mapAirQualityForecastDocsToView,
   type AirQualityForecastRawDoc,
@@ -537,8 +537,8 @@ function pickWindowItems(
   return selected.slice(0, FORECAST_WINDOW_HOURS);
 }
 
-async function handleOptions() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+async function handleOptions(request: Request) {
+  return handleCorsOptions(request);
 }
 
 async function handleGet(request: Request) {
@@ -550,7 +550,7 @@ async function handleGet(request: Request) {
       {
         status: 429,
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(request),
           'x-rate-limit-remaining': String(rateLimit.remaining),
           'x-rate-limit-reset': String(rateLimit.resetAt),
           'server-timing': buildServerTimingHeader(startedAt),
@@ -569,7 +569,7 @@ async function handleGet(request: Request) {
       {
         status: 400,
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(request),
           'x-rate-limit-remaining': String(rateLimit.remaining),
           'x-rate-limit-reset': String(rateLimit.resetAt),
           'server-timing': buildServerTimingHeader(startedAt),
@@ -585,7 +585,7 @@ async function handleGet(request: Request) {
     return NextResponse.json(cached.value, {
       headers: {
         'Cache-Control': 'no-store, max-age=0',
-        ...corsHeaders(),
+        ...corsHeaders(request),
         'x-rate-limit-remaining': String(rateLimit.remaining),
         'x-rate-limit-reset': String(rateLimit.resetAt),
         'server-timing': buildServerTimingHeader(startedAt),
@@ -646,7 +646,7 @@ async function handleGet(request: Request) {
     return NextResponse.json(response, {
       headers: {
         'Cache-Control': 'no-store, max-age=0',
-        ...corsHeaders(),
+        ...corsHeaders(request),
         'x-rate-limit-remaining': String(rateLimit.remaining),
         'x-rate-limit-reset': String(rateLimit.resetAt),
         'server-timing': buildServerTimingHeader(startedAt),
@@ -660,7 +660,7 @@ async function handleGet(request: Request) {
       return NextResponse.json(stale.value, {
         headers: {
           'Cache-Control': 'no-store, max-age=0',
-          ...corsHeaders(),
+          ...corsHeaders(request),
           'x-rate-limit-remaining': String(rateLimit.remaining),
           'x-rate-limit-reset': String(rateLimit.resetAt),
           'server-timing': buildServerTimingHeader(startedAt),
@@ -673,7 +673,7 @@ async function handleGet(request: Request) {
     return NextResponse.json(buildEmptyWeatherForecastResponse(stationName), {
       headers: {
         'Cache-Control': 'no-store, max-age=0',
-        ...corsHeaders(),
+        ...corsHeaders(request),
         'x-rate-limit-remaining': String(rateLimit.remaining),
         'x-rate-limit-reset': String(rateLimit.resetAt),
         'server-timing': buildServerTimingHeader(startedAt),

@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server';
-import { corsHeaders } from '@/lib/cors';
+import { z } from 'zod';
+import { corsHeaders, handleCorsOptions } from '@/lib/cors';
 import { withApiObservability } from '@/lib/api-observability';
 import { applyRateLimit } from '@/lib/requestRateLimit';
+import { parseJsonBodyWithSchema, RequestBodyParseError } from '@/lib/requestBody';
+import { sanitizeErrorMessage } from '@/lib/securityRedaction';
+import { getAiApiUrl } from '@/lib/serverEnv';
 import { getSharedCache, setSharedCache } from '@/lib/sharedCache';
 
-const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
+const AI_API_URL = getAiApiUrl();
 const FALLBACK_TEMP = 22;
 const FALLBACK_HUMIDITY = 45;
+const CLOTHING_REQUEST_MAX_BYTES = 4096;
 const CLOTHING_CACHE_SCOPE = 'route:clothing-recommendation';
 const CLOTHING_CACHE_FRESH_MS = 5 * 60 * 1000;
 const CLOTHING_CACHE_STALE_MS = 30 * 60 * 1000;
@@ -14,6 +19,16 @@ const CLOTHING_CACHE_HARD_TTL_MS = 24 * 60 * 60 * 1000;
 const CLOTHING_TIMEOUT_MS = 4500;
 
 export const runtime = 'nodejs';
+
+const ClothingRecommendationRequestSchema = z
+  .object({
+    temperature: z.union([z.number(), z.string().trim()]).optional(),
+    humidity: z.union([z.number(), z.string().trim()]).optional(),
+    userProfile: z.unknown().optional(),
+    airQuality: z.unknown().optional(),
+    airGrade: z.unknown().optional(),
+  })
+  .strict();
 
 interface ClothingRecommendationView {
   summary: string;
@@ -98,19 +113,8 @@ function buildFallbackRecommendation(temperature: number, humidity: number): Clo
   };
 }
 
-async function parseRequestBody(request: Request): Promise<Record<string, unknown>> {
-  const raw = await request.text();
-  if (!raw.trim()) return {};
-
-  try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-async function handleOptions() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+async function handleOptions(request: Request) {
+  return handleCorsOptions(request);
 }
 
 async function handlePost(request: Request) {
@@ -122,7 +126,7 @@ async function handlePost(request: Request) {
       {
         status: 429,
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(request),
           'x-rate-limit-remaining': String(rateLimit.remaining),
           'x-rate-limit-reset': String(rateLimit.resetAt),
           'server-timing': buildServerTimingHeader(startedAt),
@@ -132,7 +136,31 @@ async function handlePost(request: Request) {
     );
   }
 
-  const body = await parseRequestBody(request);
+  let body: Record<string, unknown>;
+  try {
+    body = await parseJsonBodyWithSchema(request, {
+      maxBytes: CLOTHING_REQUEST_MAX_BYTES,
+      schema: ClothingRecommendationRequestSchema,
+      emptyValue: {},
+    }) as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof RequestBodyParseError) {
+      return NextResponse.json(
+        { error: error.code, details: error.details },
+        {
+          status: error.status,
+          headers: {
+            ...corsHeaders(request),
+            'x-rate-limit-remaining': String(rateLimit.remaining),
+            'x-rate-limit-reset': String(rateLimit.resetAt),
+            'server-timing': buildServerTimingHeader(startedAt),
+            'x-degraded': '1',
+          },
+        },
+      );
+    }
+    throw error;
+  }
   const temperature = toNumber(body.temperature, FALLBACK_TEMP);
   const humidity = toNumber(body.humidity, FALLBACK_HUMIDITY);
   const cacheKey = JSON.stringify({
@@ -145,12 +173,12 @@ async function handlePost(request: Request) {
   const cached = await getSharedCache<ClothingRecommendationView>(CLOTHING_CACHE_SCOPE, cacheKey);
   if (cached?.state === 'shared') {
     const degraded = cached.value.source.includes('fallback');
-    return NextResponse.json(cached.value, {
-      headers: {
-        ...corsHeaders(),
-        'x-rate-limit-remaining': String(rateLimit.remaining),
-        'x-rate-limit-reset': String(rateLimit.resetAt),
-        'server-timing': buildServerTimingHeader(startedAt),
+      return NextResponse.json(cached.value, {
+        headers: {
+          ...corsHeaders(request),
+          'x-rate-limit-remaining': String(rateLimit.remaining),
+          'x-rate-limit-reset': String(rateLimit.resetAt),
+          'server-timing': buildServerTimingHeader(startedAt),
         'x-bff-clothing-cache': 'primary=shared:hit',
         'x-degraded': degraded ? '1' : '0',
       },
@@ -213,7 +241,7 @@ async function handlePost(request: Request) {
 
     return NextResponse.json(result, {
       headers: {
-        ...corsHeaders(),
+        ...corsHeaders(request),
         'x-rate-limit-remaining': String(rateLimit.remaining),
         'x-rate-limit-reset': String(rateLimit.resetAt),
         'server-timing': buildServerTimingHeader(startedAt),
@@ -222,11 +250,11 @@ async function handlePost(request: Request) {
       },
     });
   } catch (error) {
-    console.error('[BFF] Clothing recommendation error:', error);
+    console.error('[BFF] Clothing recommendation error:', sanitizeErrorMessage(error));
     if (stale?.state === 'stale') {
       return NextResponse.json(stale.value, {
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(request),
           'x-rate-limit-remaining': String(rateLimit.remaining),
           'x-rate-limit-reset': String(rateLimit.resetAt),
           'server-timing': buildServerTimingHeader(startedAt),
@@ -238,7 +266,7 @@ async function handlePost(request: Request) {
 
     return NextResponse.json(buildFallbackRecommendation(temperature, humidity), {
       headers: {
-        ...corsHeaders(),
+        ...corsHeaders(request),
         'x-rate-limit-remaining': String(rateLimit.remaining),
         'x-rate-limit-reset': String(rateLimit.resetAt),
         'server-timing': buildServerTimingHeader(startedAt),

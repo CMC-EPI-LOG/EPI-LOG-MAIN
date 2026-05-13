@@ -1,15 +1,20 @@
 import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
+import { z } from 'zod';
 import { buildReliabilityMeta, deriveDecisionSignals } from '@/lib/dailyReportDecision';
-import { corsHeaders } from '@/lib/cors';
+import { corsHeaders, handleCorsOptions } from '@/lib/cors';
 import { withApiObservability } from '@/lib/api-observability';
 import { loadAirQualityFromMongo } from '@/lib/airQualityMongo';
 import { applyRateLimit } from '@/lib/requestRateLimit';
+import { parseJsonBodyWithSchema, RequestBodyParseError } from '@/lib/requestBody';
+import { sanitizeErrorMessage } from '@/lib/securityRedaction';
+import { getAiApiUrl } from '@/lib/serverEnv';
 import { getSharedCache, setSharedCache } from '@/lib/sharedCache';
 import { buildStationCandidates, inferExpectedSido } from '@/lib/stationResolution';
-const AI_API_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://epi-log-ai.vercel.app';
+const AI_API_URL = getAiApiUrl();
 const FALLBACK_TEMP = 22;
 const FALLBACK_HUMIDITY = 45;
+const DAILY_REPORT_REQUEST_MAX_BYTES = 4096;
 
 function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -57,8 +62,24 @@ const UNKNOWN_STATION_SIGNATURE = {
 
 export const runtime = 'nodejs';
 
-async function handleOptions() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+const DailyReportProfileSchema = z
+  .object({
+    ageGroup: z.string().trim().min(1).max(64).optional(),
+    condition: z.string().trim().min(1).max(32).optional(),
+    conditions: z.array(z.string().trim().min(1).max(32)).max(4).optional(),
+    customConditions: z.array(z.string().trim().min(1).max(64)).max(5).optional(),
+  })
+  .strict();
+
+const DailyReportRequestSchema = z
+  .object({
+    stationName: z.string().trim().min(1).max(120).optional(),
+    profile: DailyReportProfileSchema.optional(),
+  })
+  .strict();
+
+async function handleOptions(request: Request) {
+  return handleCorsOptions(request);
 }
 
 interface ProfileInput {
@@ -711,17 +732,6 @@ function buildSharedCachePolicy(freshMs: number, staleMs: number) {
 }
 
 
-async function parseRequestBody(request: Request): Promise<Record<string, unknown>> {
-  const raw = await request.text();
-  if (!raw.trim()) return {};
-
-  try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
 function mapProfileToAiSchema(profile: ProfileInput) {
   const aiAge = profile.ageGroup || 'elementary_low';
   const knownConditions = normalizeKnownConditions(profile);
@@ -1307,7 +1317,7 @@ async function handlePost(request: Request) {
       {
         status: 429,
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(request),
           ...buildRateLimitHeaders(rateLimit),
           'x-degraded': '1',
         },
@@ -1317,7 +1327,11 @@ async function handlePost(request: Request) {
 
   try {
     const requestParseStartedAt = Date.now();
-    const requestBody = await parseRequestBody(request);
+    const requestBody = await parseJsonBodyWithSchema(request, {
+      maxBytes: DAILY_REPORT_REQUEST_MAX_BYTES,
+      schema: DailyReportRequestSchema,
+      emptyValue: {},
+    });
     timing.requestParseMs = Date.now() - requestParseStartedAt;
     const stationName = typeof requestBody.stationName === 'string' ? requestBody.stationName : undefined;
     const profile =
@@ -1502,7 +1516,7 @@ async function handlePost(request: Request) {
       timestamp: new Date().toISOString(),
     }, {
       headers: {
-        ...corsHeaders(),
+        ...corsHeaders(request),
         ...buildRateLimitHeaders(rateLimit),
         'x-bff-timing': timingLog,
         'server-timing': serverTiming,
@@ -1512,11 +1526,25 @@ async function handlePost(request: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof RequestBodyParseError) {
+      return NextResponse.json(
+        { error: error.code, details: error.details },
+        {
+          status: error.status,
+          headers: {
+            ...corsHeaders(request),
+            ...buildRateLimitHeaders(rateLimit),
+            'x-degraded': '1',
+          },
+        },
+      );
+    }
+
     timing.totalMs = Date.now() - requestStartedAt;
     const timingLog = formatTimingLog(timing);
     const serverTiming = buildServerTimingHeader(timing);
     console.error(`[BFF][timing] route=/api/daily-report stage=error ${timingLog}`);
-    console.error('[BFF] Internal Server Error:', error);
+    console.error('[BFF] Internal Server Error:', sanitizeErrorMessage(error));
     Sentry.withScope((scope) => {
       scope.setTag('api.route', '/api/daily-report');
       scope.setLevel('error');
@@ -1527,7 +1555,7 @@ async function handlePost(request: Request) {
       {
         status: 500,
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(request),
           ...buildRateLimitHeaders(rateLimit),
           'x-bff-timing': timingLog,
           'server-timing': serverTiming,

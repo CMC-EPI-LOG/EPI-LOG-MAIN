@@ -125,7 +125,7 @@ test('핵심 대시보드가 렌더링된다', async ({ page }) => {
   await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible();
   await expect(page.getByText('초미세먼지 농도가 높아 호흡기 자극 위험이 있어 실외 활동 시간을 조절해야 해요.')).toBeVisible();
   await expect(page.getByText('아이를 위한 오늘의 액션')).toBeVisible();
-  await expect(page.getByTestId('share-button')).toBeVisible();
+  await expect(page.getByText('본 서비스는 의료적 조언이 아니며 정보 제공을 목적으로 합니다.')).toBeVisible();
 });
 
 test('reverse-geocode fallback 응답이어도 지역 제한 문구 없이 기본 관측소로 이어진다', async ({ page }) => {
@@ -268,7 +268,6 @@ test('프로필 변경 중에는 전체 데이터 컴포넌트가 스켈레톤�
     expect(page.getByTestId('checklist-loading')).toBeVisible(),
     expect(page.getByTestId('insight-loading')).toBeVisible(),
     expect(page.getByTestId('datagrid-loading')).toBeVisible(),
-    expect(page.getByTestId('share-button-loading')).toBeVisible(),
   ]);
 
   await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible({ timeout: 10000 });
@@ -320,7 +319,6 @@ test('초기 진입 시 기본 fallback 문구 대신 스켈레톤을 먼저 보
     expect(page.getByTestId('checklist-loading')).toBeVisible(),
     expect(page.getByTestId('insight-loading')).toBeVisible(),
     expect(page.getByTestId('datagrid-loading')).toBeVisible(),
-    expect(page.getByTestId('share-button-loading')).toBeVisible(),
   ]);
 
   await expect(page.getByText('지금은 정보를 가져올 수 없어요 😢')).toHaveCount(0);
@@ -329,9 +327,7 @@ test('초기 진입 시 기본 fallback 문구 대신 스켈레톤을 먼저 보
 
   await expect(page.getByText('오늘은 실외 활동 가능해요')).toBeVisible({ timeout: 10000 });
   await expect.poll(() => clothingRequests).toBeGreaterThan(0);
-  await expect(page.getByTestId('share-button')).toBeVisible();
   await expect(page.getByTestId('hero-clothing-open')).toBeDisabled();
-  await expect(page.getByTestId('share-button-loading')).toHaveCount(0);
 });
 
 test('위치 모달을 열고 닫을 수 있다', async ({ page }) => {
@@ -368,19 +364,14 @@ test('첫 화면은 요약 + 액션 + 옷차림 버튼 우선으로 보이고 �
   await expect(page.getByTestId('datagrid-toggle')).toHaveAttribute('aria-expanded', 'false');
 });
 
-test('공유 CTA는 고정형 컴팩트 높이를 유지한다', async ({ page }) => {
+test('하단 공유 CTA와 설치 유도 배너를 렌더링하지 않는다', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await gotoHome(page);
 
-  const cta = page.getByTestId('share-button');
-  await expect(cta).toBeVisible();
-
-  const box = await cta.boundingBox();
-  const viewport = page.viewportSize();
-  if (!box || !viewport) throw new Error('Share button box is missing');
-
-  expect(box.height).toBeLessThanOrEqual(64);
-  expect(box.y + box.height).toBeGreaterThanOrEqual(viewport.height - 30);
+  await expect(page.getByTestId('share-button')).toHaveCount(0);
+  await expect(page.getByTestId('share-button-loading')).toHaveCount(0);
+  await expect(page.getByText(/앱 설치|앱으로 더 편하게/)).toHaveCount(0);
+  await expect(page.getByText('증상이 있다면 반드시 전문 의료진과 상의하세요.')).toBeVisible();
 });
 
 test('핵심 본문 텍스트는 handwriting 클래스를 사용하지 않는다', async ({ page }) => {
