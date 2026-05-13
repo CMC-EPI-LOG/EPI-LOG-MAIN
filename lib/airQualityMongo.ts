@@ -37,30 +37,6 @@ type MongoAirQualityLatestDoc = {
   ingestedAt?: string | Date | null;
 };
 
-type MongoLegacyAirQualityDoc = {
-  sidoName?: string | null;
-  stationName?: string | null;
-  dataTime?: string | null;
-  so2Value?: number | string | null;
-  so2Grade?: string | null;
-  coValue?: number | string | null;
-  coGrade?: string | null;
-  o3Value?: number | string | null;
-  o3Grade?: string | null;
-  no2Value?: number | string | null;
-  no2Grade?: string | null;
-  pm10Value?: number | string | null;
-  pm10Grade?: string | null;
-  pm25Value?: number | string | null;
-  pm25Grade?: string | null;
-  khaiValue?: number | string | null;
-  khaiGrade?: string | null;
-  temperature?: number | string | null;
-  humidity?: number | string | null;
-  createdAt?: string | Date | null;
-  updatedAt?: string | Date | null;
-};
-
 type MongoWeatherForecastDoc = {
   sidoName?: string | null;
   stationName?: string | null;
@@ -288,52 +264,6 @@ function normalizeMangName(value: string | null | undefined) {
   if (!trimmed) return null;
   if (trimmed === '미상' || trimmed === '정보없음' || trimmed === '정보 없음') return null;
   return trimmed;
-}
-
-function normalizeLegacyAirQualityDoc(doc: MongoLegacyAirQualityDoc): MongoAirQualityLatestDoc | null {
-  const stationName = doc.stationName?.trim();
-  const sidoName = doc.sidoName?.trim();
-  const dataTime = doc.dataTime?.trim();
-  if (!stationName || !sidoName || !dataTime) return null;
-
-  const measuredAt = parseAirQualityDataTimeToUtc(dataTime);
-  if (!measuredAt) return null;
-
-  return {
-    sidoName,
-    stationName,
-    mangName: null,
-    dataTime,
-    measuredAtUtc: measuredAt.toISOString(),
-    pm10Value: parseNumeric(doc.pm10Value) ?? null,
-    pm10Value24: null,
-    pm25Value: parseNumeric(doc.pm25Value) ?? null,
-    pm25Value24: null,
-    o3Value: parseNumeric(doc.o3Value) ?? null,
-    no2Value: parseNumeric(doc.no2Value) ?? null,
-    coValue: parseNumeric(doc.coValue) ?? null,
-    so2Value: parseNumeric(doc.so2Value) ?? null,
-    khaiValue: parseNumeric(doc.khaiValue) ?? null,
-    khaiGrade: doc.khaiGrade ?? null,
-    pm10Grade: doc.pm10Grade ?? null,
-    pm25Grade: doc.pm25Grade ?? null,
-    pm10Grade1h: null,
-    pm25Grade1h: null,
-    o3Grade: doc.o3Grade ?? null,
-    no2Grade: doc.no2Grade ?? null,
-    coGrade: doc.coGrade ?? null,
-    so2Grade: doc.so2Grade ?? null,
-    pm10Flag: null,
-    pm25Flag: null,
-    o3Flag: null,
-    no2Flag: null,
-    coFlag: null,
-    so2Flag: null,
-    temperature: parseNumeric(doc.temperature) ?? null,
-    humidity: parseNumeric(doc.humidity) ?? null,
-    updatedAt: doc.updatedAt ?? doc.createdAt ?? null,
-    ingestedAt: doc.updatedAt ?? doc.createdAt ?? null,
-  };
 }
 
 function parseMeasuredAtMs(doc: MongoAirQualityLatestDoc): number {
@@ -580,51 +510,7 @@ export async function loadAirQualityFromMongo(
       .limit(200)
       .toArray();
 
-    const legacyDbName = process.env.AIRKOREA_LEGACY_DB_NAME || 'airkorea';
-    const legacyCollectionName = process.env.AIRKOREA_LEGACY_COLLECTION || 'air_quality_data';
-    const legacyCollection = conn.connection
-      .useDb(legacyDbName)
-      .collection<MongoLegacyAirQualityDoc>(legacyCollectionName);
-
-    const legacyDocs = (await legacyCollection
-      .find(
-        {
-          stationName: { $in: candidates },
-        },
-        {
-          projection: {
-            _id: 0,
-            sidoName: 1,
-            stationName: 1,
-            dataTime: 1,
-            so2Value: 1,
-            so2Grade: 1,
-            coValue: 1,
-            coGrade: 1,
-            o3Value: 1,
-            o3Grade: 1,
-            no2Value: 1,
-            no2Grade: 1,
-            pm10Value: 1,
-            pm10Grade: 1,
-            pm25Value: 1,
-            pm25Grade: 1,
-            khaiValue: 1,
-            khaiGrade: 1,
-            temperature: 1,
-            humidity: 1,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        },
-      )
-      .sort({ dataTime: -1, updatedAt: -1, createdAt: -1 })
-      .limit(200)
-      .toArray())
-      .map(normalizeLegacyAirQualityDoc)
-      .filter((doc): doc is MongoAirQualityLatestDoc => Boolean(doc));
-
-    const docs = [...primaryDocs, ...legacyDocs].sort(compareAirQualityRecency);
+    const docs = primaryDocs.sort(compareAirQualityRecency);
 
     if (docs.length === 0) return null;
 

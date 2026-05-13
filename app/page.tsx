@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import HomeScreen from "@/components/HomeScreen";
-import HomeSeoSections from "@/components/HomeSeoSections";
 import { getHomeJsonLd, HOME_DESCRIPTION, HOME_TITLE } from "@/lib/homeSeo";
 import {
   DEFAULT_OG_IMAGE,
@@ -49,7 +48,6 @@ export default function Home() {
         />
       ))}
       <HomeScreen enableClothingModalPreview />
-      <HomeSeoSections />
     </>
   );
 }

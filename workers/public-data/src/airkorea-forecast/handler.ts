@@ -1,6 +1,6 @@
 import type { AnyBulkWriteOperation } from 'mongodb';
 import { getAirKoreaForecastCollections } from '../shared/collections';
-import { normalizeServiceKey, optionalEnv, parseIntegerEnv, requireEnv } from '../shared/env';
+import { normalizeServiceKey, optionalEnv, parseIntegerEnv, requireEnv, requireUrlEnv } from '../shared/env';
 import { fetchJson } from '../shared/http';
 import { emitMetrics } from '../shared/metrics';
 import { bulkUpsert, getCollection } from '../shared/mongo';
@@ -21,9 +21,13 @@ type AirKoreaForecastResponse = {
 };
 
 const DEFAULT_PAGE_SIZE = 100;
-const DEFAULT_RAW_TTL_DAYS = 30;
-const DEFAULT_RUNS_TTL_DAYS = 30;
+const DEFAULT_RAW_TTL_DAYS = 1;
+const DEFAULT_RUNS_TTL_DAYS = 7;
 const DEFAULT_CODES = ['PM10', 'PM25'];
+const DEFAULT_HTTP_RETRY_COUNT = 3;
+const DEFAULT_HTTP_RETRY_DELAY_MS = 1_500;
+const DEFAULT_HTTP_MAX_RETRY_DELAY_MS = 8_000;
+const RETRY_STATUS_CODES = [429];
 
 function getKstSearchDate(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -42,13 +46,25 @@ export async function handler(event: ScheduledIngestEvent) {
   const dbName = optionalEnv('AIRKOREA_DB_NAME', 'air_quality');
   const collections = getAirKoreaForecastCollections();
   const serviceKey = normalizeServiceKey(requireEnv('AIRKOREA_SERVICE_KEY'));
-  const baseUrl = requireEnv('AIRKOREA_FORECAST_BASE_URL');
+  const baseUrl = requireUrlEnv('AIRKOREA_FORECAST_BASE_URL');
   const sourceVersion = optionalEnv('AIRKOREA_FORECAST_API_VERSION', 'forecast-v1');
   const trigger = event.trigger || 'manual';
   const dryRun = Boolean(event.dryRun);
   const pageSize = parseIntegerEnv('AIRKOREA_FORECAST_PAGE_SIZE', DEFAULT_PAGE_SIZE);
   const rawTtlDays = parseIntegerEnv('AIRKOREA_FORECAST_RAW_TTL_DAYS', DEFAULT_RAW_TTL_DAYS);
   const runsTtlDays = parseIntegerEnv('AIRKOREA_FORECAST_RUNS_TTL_DAYS', DEFAULT_RUNS_TTL_DAYS);
+  const httpRetryCount = Math.max(
+    0,
+    parseIntegerEnv('AIRKOREA_HTTP_RETRY_COUNT', DEFAULT_HTTP_RETRY_COUNT),
+  );
+  const httpRetryDelayMs = Math.max(
+    0,
+    parseIntegerEnv('AIRKOREA_HTTP_RETRY_DELAY_MS', DEFAULT_HTTP_RETRY_DELAY_MS),
+  );
+  const httpMaxRetryDelayMs = Math.max(
+    httpRetryDelayMs,
+    parseIntegerEnv('AIRKOREA_HTTP_MAX_RETRY_DELAY_MS', DEFAULT_HTTP_MAX_RETRY_DELAY_MS),
+  );
   const searchDate = getKstSearchDate();
   const requestedCodes = event.scope && event.scope.length > 0 ? unique(event.scope) : DEFAULT_CODES;
   const runId = await startRun({
@@ -61,6 +77,9 @@ export async function handler(event: ScheduledIngestEvent) {
       searchDate,
       requestedCodes,
       dryRun,
+      httpRetryCount,
+      httpRetryDelayMs,
+      httpMaxRetryDelayMs,
     },
   });
 
@@ -94,7 +113,10 @@ export async function handler(event: ScheduledIngestEvent) {
               InformCode: requestedCode,
             },
             timeoutMs: 12_000,
-            retryCount: 1,
+            retryCount: httpRetryCount,
+            retryDelayMs: httpRetryDelayMs,
+            maxRetryDelayMs: httpMaxRetryDelayMs,
+            retryStatusCodes: RETRY_STATUS_CODES,
           });
 
           const parsed = extractAirKoreaForecastItems(payload);
@@ -201,6 +223,9 @@ export async function handler(event: ScheduledIngestEvent) {
         latestRows,
         failedCodes,
         dryRun,
+        httpRetryCount,
+        httpRetryDelayMs,
+        httpMaxRetryDelayMs,
       },
     });
 
@@ -213,6 +238,9 @@ export async function handler(event: ScheduledIngestEvent) {
       rawRows,
       latestRows,
       failedCodes,
+      httpRetryCount,
+      httpRetryDelayMs,
+      httpMaxRetryDelayMs,
     };
   } catch (error) {
     await finishRun({
@@ -228,6 +256,9 @@ export async function handler(event: ScheduledIngestEvent) {
         latestRows,
         failedCodes,
         dryRun,
+        httpRetryCount,
+        httpRetryDelayMs,
+        httpMaxRetryDelayMs,
       },
       error: error instanceof Error ? error.message : 'Unknown AirKorea forecast ingest error',
     });

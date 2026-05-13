@@ -7,9 +7,7 @@ import HeroCard from "@/components/HeroCard";
 import InsightDrawer from "@/components/InsightDrawer";
 import DataGrid from "@/components/DataGrid";
 import ProfileSettingsModal from "@/components/ProfileSettingsModal";
-import InstallPrompt from "@/components/InstallPrompt";
 import LocationHeader from "@/components/LocationHeader";
-import ShareButton from "@/components/ShareButton";
 import ActionChecklistCard from "@/components/ActionChecklistCard";
 import ClothingCard from "@/components/ClothingCard";
 import ClothingDetailModal from "@/components/ClothingDetailModal";
@@ -850,9 +848,6 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
       : "잠시 후 다시 시도해주세요.";
   const hasAirQualityData = Boolean(data?.airQuality);
   const hasAiGuideData = Boolean(data?.aiGuide);
-  const hasShareData = Boolean(
-    data?.aiGuide?.summary || data?.aiGuide?.threeReason?.[0] || data?.aiGuide?.activityRecommendation,
-  );
   const isCoreDataLoading = (isLoading && !data) || isLocationRefreshing || isProfileRefreshing;
   const isHeroLoading = isCoreDataLoading;
   const isProfileDataLoading = isCoreDataLoading;
@@ -860,7 +855,6 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
   const shouldRenderActionChecklist = isCoreDataLoading || hasAiGuideData;
   const shouldRenderInsightDrawer = isCoreDataLoading || hasAiGuideData || hasAirQualityData;
   const shouldRenderDataGrid = isCoreDataLoading || hasAirQualityData;
-  const shouldRenderShareButton = isCoreDataLoading || hasShareData;
   const shouldRenderClothingCard =
     !enableClothingModalPreview && (isCoreDataLoading || hasAirQualityData || Boolean(clothingData));
   const refreshingMessage = isLocationRefreshing
@@ -1303,32 +1297,13 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
         </div>
       </div>
 
-      {/* Sticky Share Button */}
-      {shouldRenderShareButton && (
-        <div className="fixed bottom-2 left-4 right-4 mx-auto max-w-2xl pb-[calc(env(safe-area-inset-bottom)+0.2rem)]">
-          <ShareButton
-            nickname={profile?.nickname}
-            region={displayRegion}
-            action={
-              data?.aiGuide?.activityRecommendation?.includes("자제") ||
-              data?.aiGuide?.activityRecommendation?.includes("X")
-                ? "실내 놀이"
-                : "신나는 외출"
-            }
-            summary={data?.aiGuide?.summary}
-            reason={data?.aiGuide?.threeReason?.[0]}
-            isLoading={isProfileDataLoading}
-          />
-        </div>
-      )}
-
-      <div className="max-w-2xl mx-auto mt-20 mb-20 space-y-3 text-center text-xs text-gray-600 font-medium">
+      <footer className="max-w-2xl mx-auto mt-16 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-center text-xs text-gray-600 font-medium">
         <p className="text-gray-500">
           본 서비스는 의료적 조언이 아니며 정보 제공을 목적으로 합니다.
           <br />
           증상이 있다면 반드시 전문 의료진과 상의하세요.
         </p>
-      </div>
+      </footer>
 
       <ProfileSettingsModal
         key={`settings-${settingsModalTab}-${profile?.ageGroup || "default"}-${profile?.condition || "none"}-${profile?.conditions?.join("_") || "none"}-${profile?.customConditions?.join("_") || "none"}-${isSettingsModalOpen ? "open" : "closed"}`}
@@ -1358,8 +1333,6 @@ export default function Home({ enableClothingModalPreview = false }: HomeProps =
           onRefresh={handleRefreshClothingModal}
         />
       )}
-
-      {!isLoading && <InstallPrompt />}
     </main>
   );
 }

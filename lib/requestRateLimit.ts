@@ -29,12 +29,19 @@ function pruneBuckets(now: number) {
   }
 }
 
-export function applyRateLimit(route: string, request: Request): RateLimitResult {
+export function applyRateLimit(
+  route: string,
+  request: Request,
+  options?: { windowMs?: number; max?: number },
+): RateLimitResult {
   const now = Date.now();
   pruneBuckets(now);
 
-  const windowMs = Number.isFinite(DEFAULT_WINDOW_MS) && DEFAULT_WINDOW_MS > 0 ? DEFAULT_WINDOW_MS : 60_000;
-  const max = Number.isFinite(DEFAULT_MAX) && DEFAULT_MAX > 0 ? DEFAULT_MAX : 60;
+  const configuredWindowMs = options?.windowMs ?? DEFAULT_WINDOW_MS;
+  const configuredMax = options?.max ?? DEFAULT_MAX;
+  const windowMs =
+    Number.isFinite(configuredWindowMs) && configuredWindowMs > 0 ? configuredWindowMs : 60_000;
+  const max = Number.isFinite(configuredMax) && configuredMax > 0 ? configuredMax : 60;
   const key = `${route}:${getClientIp(request)}`;
   const existing = buckets.get(key);
 

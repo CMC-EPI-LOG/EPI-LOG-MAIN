@@ -67,11 +67,16 @@ Optional collection variables:
 
 TTL retention defaults:
 
-- `AIRKOREA_RAW_TTL_DAYS=7`
-- `AIRKOREA_HISTORY_TTL_DAYS=30`
-- `AIRKOREA_RUNS_TTL_DAYS=30`
-- `WEATHER_FORECAST_WRITER_TTL_DAYS=14`
-- `WEATHER_FORECAST_RUNS_TTL_DAYS=30`
+- `AIRKOREA_WRITE_HISTORY=false`
+- `AIRKOREA_RAW_TTL_DAYS=1`
+- `AIRKOREA_HISTORY_TTL_DAYS=1`
+- `AIRKOREA_RUNS_TTL_DAYS=7`
+- `AIRKOREA_FORECAST_RAW_TTL_DAYS=1`
+- `AIRKOREA_FORECAST_RUNS_TTL_DAYS=7`
+- `WEATHER_FORECAST_WRITER_TTL_DAYS=4`
+- `WEATHER_FORECAST_RUNS_TTL_DAYS=7`
+- `KMA_LIFESTYLE_RAW_TTL_DAYS=1`
+- `KMA_LIFESTYLE_RUNS_TTL_DAYS=7`
 
 Recommended values:
 
@@ -109,6 +114,19 @@ WEATHER_FORECAST_DB_NAME='weather_forecast' \
 npm run create-indexes
 ```
 
+If this deploy removes legacy readers or history retention, rerun the same command once with:
+
+```bash
+AIRKOREA_WRITE_HISTORY='false' \
+PUBLIC_DATA_DROP_DEPRECATED_COLLECTIONS='true'
+```
+
+That opt-in cleanup path drops deprecated collections that are no longer on the live read path:
+
+- `air_quality.air_quality_history`
+- `weather_forecast.weather_forecast_data`
+- `airkorea.air_quality_data`
+
 Expected collections:
 
 - `air_quality.airkorea_realtime_raw`
@@ -117,6 +135,12 @@ Expected collections:
 - `air_quality.ingest_runs`
 - `weather_forecast.weather_forecast_data_shadow`
 - `weather_forecast.ingest_runs_shadow`
+
+Deprecated collections should not remain after cleanup:
+
+- `air_quality.air_quality_history` when `AIRKOREA_WRITE_HISTORY=false`
+- `weather_forecast.weather_forecast_data`
+- `airkorea.air_quality_data`
 
 ## 6. Deploy the CDK Stack
 

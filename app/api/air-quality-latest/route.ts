@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { buildReliabilityMeta, type AirFetchResult } from '@/lib/dailyReportDecision';
-import { corsHeaders } from '@/lib/cors';
+import { corsHeaders, handleCorsOptions } from '@/lib/cors';
 import { withApiObservability } from '@/lib/api-observability';
 import { loadAirQualityFromMongo } from '@/lib/airQualityMongo';
 import { applyRateLimit } from '@/lib/requestRateLimit';
@@ -182,8 +182,8 @@ function toViewAirData(raw: AirQualityRaw | null, fallbackStation: string): AirQ
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-async function handleOptions() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders() });
+async function handleOptions(request: Request) {
+  return handleCorsOptions(request);
 }
 
 async function handleGet(request: Request) {
@@ -195,7 +195,7 @@ async function handleGet(request: Request) {
       {
         status: 429,
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(request),
           'x-rate-limit-remaining': String(rateLimit.remaining),
           'x-rate-limit-reset': String(rateLimit.resetAt),
           'server-timing': buildServerTimingHeader(startedAt),
@@ -213,7 +213,7 @@ async function handleGet(request: Request) {
       {
         status: 400,
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(request),
           'x-rate-limit-remaining': String(rateLimit.remaining),
           'x-rate-limit-reset': String(rateLimit.resetAt),
           'server-timing': buildServerTimingHeader(startedAt),
@@ -233,7 +233,7 @@ async function handleGet(request: Request) {
     return NextResponse.json(cached.value, {
       headers: {
         'Cache-Control': 'no-store, max-age=0',
-        ...corsHeaders(),
+        ...corsHeaders(request),
         'x-rate-limit-remaining': String(rateLimit.remaining),
         'x-rate-limit-reset': String(rateLimit.resetAt),
         'server-timing': buildServerTimingHeader(startedAt),
@@ -268,7 +268,7 @@ async function handleGet(request: Request) {
     return NextResponse.json(payload, {
       headers: {
         'Cache-Control': 'no-store, max-age=0',
-        ...corsHeaders(),
+        ...corsHeaders(request),
         'x-rate-limit-remaining': String(rateLimit.remaining),
         'x-rate-limit-reset': String(rateLimit.resetAt),
         'server-timing': buildServerTimingHeader(startedAt),
@@ -282,7 +282,7 @@ async function handleGet(request: Request) {
       return NextResponse.json(stale.value, {
         headers: {
           'Cache-Control': 'no-store, max-age=0',
-          ...corsHeaders(),
+          ...corsHeaders(request),
           'x-rate-limit-remaining': String(rateLimit.remaining),
           'x-rate-limit-reset': String(rateLimit.resetAt),
           'server-timing': buildServerTimingHeader(startedAt),
@@ -297,7 +297,7 @@ async function handleGet(request: Request) {
       {
         status: 500,
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(request),
           'x-rate-limit-remaining': String(rateLimit.remaining),
           'x-rate-limit-reset': String(rateLimit.resetAt),
           'server-timing': buildServerTimingHeader(startedAt),

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import * as Sentry from '@sentry/nextjs';
+import { sanitizeErrorMessage, sanitizeForLogging } from '@/lib/securityRedaction';
 
 type LogLevel = 'info' | 'warn' | 'error';
 type BreadcrumbLevel = 'info' | 'warning' | 'error';
@@ -47,11 +48,16 @@ function captureSentryException(
 }
 
 function logStructured(level: LogLevel, event: string, payload: Record<string, unknown>) {
+  const sanitizedPayload = sanitizeForLogging(payload);
+  const normalizedPayload =
+    sanitizedPayload && typeof sanitizedPayload === 'object' && !Array.isArray(sanitizedPayload)
+      ? sanitizedPayload
+      : { payload: sanitizedPayload };
   const line = JSON.stringify({
     ts: new Date().toISOString(),
     level,
     event,
-    ...payload,
+    ...normalizedPayload,
   });
 
   if (level === 'error') {
@@ -136,6 +142,7 @@ export function withApiObservability(route: string, method: string, handler: Api
     } catch (error) {
       const durationMs = Date.now() - startedAt;
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const sanitizedErrorMessage = sanitizeErrorMessage(errorMessage);
 
       addSentryBreadcrumb({
         category: 'api.exception',
@@ -145,7 +152,7 @@ export function withApiObservability(route: string, method: string, handler: Api
           route,
           request_id: requestId,
           duration_ms: durationMs,
-          error: errorMessage,
+          error: sanitizedErrorMessage,
         },
       });
 
@@ -162,7 +169,7 @@ export function withApiObservability(route: string, method: string, handler: Api
         path,
         request_id: requestId,
         duration_ms: durationMs,
-        error: errorMessage,
+        error: sanitizedErrorMessage,
       });
 
       throw error;

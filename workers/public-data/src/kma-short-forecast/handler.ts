@@ -1,7 +1,7 @@
 import { FORECAST_GRIDS } from '../config/forecast-grids';
 import { extractKmaItems, buildForecastDocuments } from './normalize';
 import { getWeatherForecastCollections } from '../shared/collections';
-import { normalizeServiceKey, optionalEnv, parseIntegerEnv, requireEnv } from '../shared/env';
+import { normalizeServiceKey, optionalEnv, parseIntegerEnv, requireEnv, requireUrlEnv } from '../shared/env';
 import { fetchJson } from '../shared/http';
 import { emitMetrics } from '../shared/metrics';
 import { bulkUpsert, getCollection } from '../shared/mongo';
@@ -17,14 +17,14 @@ type KmaResponse = {
 };
 
 const DEFAULT_PAGE_SIZE = 1000;
-const DEFAULT_FORECAST_TTL_DAYS = 14;
-const DEFAULT_RUNS_TTL_DAYS = 30;
+const DEFAULT_FORECAST_TTL_DAYS = 4;
+const DEFAULT_RUNS_TTL_DAYS = 7;
 
 export async function handler(event: ScheduledIngestEvent) {
   const dbName = optionalEnv('WEATHER_FORECAST_DB_NAME', 'weather_forecast');
   const collections = getWeatherForecastCollections();
   const serviceKey = normalizeServiceKey(requireEnv('KMA_SERVICE_KEY'));
-  const baseUrl = requireEnv('KMA_BASE_URL');
+  const baseUrl = requireUrlEnv('KMA_BASE_URL');
   const trigger = event.trigger || 'manual';
   const dryRun = Boolean(event.dryRun);
   const pageSize = parseIntegerEnv('KMA_PAGE_SIZE', DEFAULT_PAGE_SIZE);

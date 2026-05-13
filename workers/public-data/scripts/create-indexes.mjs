@@ -2,6 +2,8 @@ import { MongoClient } from 'mongodb';
 
 const mongoUri = process.env.MONGODB_URI;
 const airQualityDbName = process.env.AIRKOREA_DB_NAME || 'air_quality';
+const legacyAirKoreaDbName = process.env.AIRKOREA_LEGACY_DB_NAME || 'airkorea';
+const legacyAirKoreaCollection = process.env.AIRKOREA_LEGACY_COLLECTION || 'air_quality_data';
 const weatherForecastDbName = process.env.WEATHER_FORECAST_DB_NAME || 'weather_forecast';
 const airKoreaRawCollection = process.env.AIRKOREA_RAW_COLLECTION || 'airkorea_realtime_raw';
 const airKoreaHistoryCollection = process.env.AIRKOREA_HISTORY_COLLECTION || 'air_quality_history';
@@ -20,23 +22,38 @@ const kmaLifestyleRawCollection = process.env.KMA_LIFESTYLE_RAW_COLLECTION || 'k
 const kmaLifestyleLatestCollection =
   process.env.KMA_LIFESTYLE_LATEST_COLLECTION || 'lifestyle_indices_daily';
 const kmaLifestyleRunsCollection = process.env.KMA_LIFESTYLE_RUNS_COLLECTION || 'ingest_runs_lifestyle';
-const airKoreaRawTtlDays = Number.parseInt(process.env.AIRKOREA_RAW_TTL_DAYS || '7', 10);
-const airKoreaHistoryTtlDays = Number.parseInt(process.env.AIRKOREA_HISTORY_TTL_DAYS || '30', 10);
-const airKoreaRunsTtlDays = Number.parseInt(process.env.AIRKOREA_RUNS_TTL_DAYS || '30', 10);
-const airKoreaForecastRawTtlDays = Number.parseInt(process.env.AIRKOREA_FORECAST_RAW_TTL_DAYS || '30', 10);
+const airKoreaRawTtlDays = Number.parseInt(process.env.AIRKOREA_RAW_TTL_DAYS || '1', 10);
+const airKoreaHistoryTtlDays = Number.parseInt(process.env.AIRKOREA_HISTORY_TTL_DAYS || '1', 10);
+const airKoreaRunsTtlDays = Number.parseInt(process.env.AIRKOREA_RUNS_TTL_DAYS || '7', 10);
+const airKoreaForecastRawTtlDays = Number.parseInt(process.env.AIRKOREA_FORECAST_RAW_TTL_DAYS || '1', 10);
 const airKoreaForecastRunsTtlDays = Number.parseInt(
-  process.env.AIRKOREA_FORECAST_RUNS_TTL_DAYS || '30',
+  process.env.AIRKOREA_FORECAST_RUNS_TTL_DAYS || '7',
   10,
 );
-const weatherForecastWriterTtlDays = Number.parseInt(process.env.WEATHER_FORECAST_WRITER_TTL_DAYS || '14', 10);
-const weatherForecastRunsTtlDays = Number.parseInt(process.env.WEATHER_FORECAST_RUNS_TTL_DAYS || '30', 10);
-const kmaLifestyleRawTtlDays = Number.parseInt(process.env.KMA_LIFESTYLE_RAW_TTL_DAYS || '14', 10);
-const kmaLifestyleRunsTtlDays = Number.parseInt(process.env.KMA_LIFESTYLE_RUNS_TTL_DAYS || '30', 10);
+const weatherForecastWriterTtlDays = Number.parseInt(process.env.WEATHER_FORECAST_WRITER_TTL_DAYS || '4', 10);
+const weatherForecastRunsTtlDays = Number.parseInt(process.env.WEATHER_FORECAST_RUNS_TTL_DAYS || '7', 10);
+const kmaLifestyleRawTtlDays = Number.parseInt(process.env.KMA_LIFESTYLE_RAW_TTL_DAYS || '1', 10);
+const kmaLifestyleRunsTtlDays = Number.parseInt(process.env.KMA_LIFESTYLE_RUNS_TTL_DAYS || '7', 10);
 
 if (!mongoUri) {
   console.error('Missing env: MONGODB_URI');
   process.exit(1);
 }
+
+function parseBooleanFlag(value, fallback = false) {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+const airKoreaWriteHistory = parseBooleanFlag(process.env.AIRKOREA_WRITE_HISTORY, false);
+const dropDeprecatedCollections = parseBooleanFlag(
+  process.env.PUBLIC_DATA_DROP_DEPRECATED_COLLECTIONS,
+  false,
+);
 
 const client = new MongoClient(mongoUri);
 
@@ -57,6 +74,20 @@ async function backfillExpireAt(collection, sourceExpression, ttlDays) {
       },
     ],
   );
+}
+
+async function collectionExists(db, collectionName) {
+  const collections = await db.listCollections({ name: collectionName }, { nameOnly: true }).toArray();
+  return collections.length > 0;
+}
+
+async function dropCollectionIfExists(db, collectionName) {
+  if (!(await collectionExists(db, collectionName))) {
+    return false;
+  }
+
+  await db.collection(collectionName).drop();
+  return true;
 }
 
 async function createAirQualityIndexes() {
@@ -87,24 +118,38 @@ async function createAirQualityIndexes() {
   ]);
   await backfillExpireAt(rawCollection, { $toDate: '$fetchedAt' }, airKoreaRawTtlDays);
 
-  const historyCollection = db.collection(airKoreaHistoryCollection);
-  await historyCollection.createIndexes([
-    {
-      key: { sidoName: 1, stationName: 1, mangName: 1, dataTime: 1 },
-      name: 'uq_air_quality_history_station_time',
-      unique: true,
-    },
-    {
-      key: { measuredAtUtc: -1 },
-      name: 'idx_air_quality_history_measured_at',
-    },
-    {
-      key: { expireAt: 1 },
-      name: 'ttl_air_quality_history_expire_at',
-      expireAfterSeconds: 0,
-    },
-  ]);
-  await backfillExpireAt(historyCollection, { $toDate: '$ingestedAt' }, airKoreaHistoryTtlDays);
+  if (airKoreaWriteHistory) {
+    const historyCollection = db.collection(airKoreaHistoryCollection);
+    await historyCollection.createIndexes([
+      {
+        key: { sidoName: 1, stationName: 1, mangName: 1, dataTime: 1 },
+        name: 'uq_air_quality_history_station_time',
+        unique: true,
+      },
+      {
+        key: { measuredAtUtc: -1 },
+        name: 'idx_air_quality_history_measured_at',
+      },
+      {
+        key: { expireAt: 1 },
+        name: 'ttl_air_quality_history_expire_at',
+        expireAfterSeconds: 0,
+      },
+    ]);
+    await backfillExpireAt(historyCollection, { $toDate: '$ingestedAt' }, airKoreaHistoryTtlDays);
+  } else if (dropDeprecatedCollections) {
+    await dropCollectionIfExists(db, airKoreaHistoryCollection);
+  } else if (await collectionExists(db, airKoreaHistoryCollection)) {
+    const historyCollection = db.collection(airKoreaHistoryCollection);
+    await historyCollection.createIndex(
+      { expireAt: 1 },
+      {
+        name: 'ttl_air_quality_history_expire_at',
+        expireAfterSeconds: 0,
+      },
+    );
+    await backfillExpireAt(historyCollection, { $toDate: '$ingestedAt' }, airKoreaHistoryTtlDays);
+  }
 
   await db.collection(airKoreaLatestCollection).createIndexes([
     {
@@ -220,6 +265,10 @@ async function createWeatherForecastIndexes() {
   ]);
   await backfillExpireAt(weatherWriter, { $toDate: '$ingestedAt' }, weatherForecastWriterTtlDays);
 
+  if (dropDeprecatedCollections && weatherForecastWriterCollection !== 'weather_forecast_data') {
+    await dropCollectionIfExists(db, 'weather_forecast_data');
+  }
+
   const weatherRuns = db.collection(weatherForecastRunsCollection);
   await weatherRuns.createIndexes([
     {
@@ -292,12 +341,20 @@ async function createLifestyleIndexes() {
   );
 }
 
+async function cleanupLegacyCollections() {
+  if (!dropDeprecatedCollections) return;
+
+  const legacyDb = client.db(legacyAirKoreaDbName);
+  await dropCollectionIfExists(legacyDb, legacyAirKoreaCollection);
+}
+
 async function main() {
   await client.connect();
   await createAirQualityIndexes();
   await createAirQualityForecastIndexes();
   await createWeatherForecastIndexes();
   await createLifestyleIndexes();
+  await cleanupLegacyCollections();
   console.log('Mongo indexes created successfully.');
 }
 
